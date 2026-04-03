@@ -1,0 +1,5 @@
+www-data ALL=(ALL) NOPASSWD: /usr/sbin/unbound-checkconf
+www-data ALL=(ALL) NOPASSWD: /bin/systemctl reload unbound
+www-data ALL=(ALL) NOPASSWD: /bin/systemctl restart unbound
+www-data ALL=(ALL) NOPASSWD: /sbin/iptables
+www-data ALL=(ALL) NOPASSWD: /usr/sbin/netfilter-persistent

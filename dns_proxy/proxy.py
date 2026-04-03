@@ -1,0 +1,168 @@
+"""
+DNS proxy core — DNSShieldResolver + broadcast to WebSocket channel layer.
+Uses dnslib's synchronous server with a thread pool for concurrency.
+"""
+import time
+import threading
+import logging
+import asyncio
+import dnslib
+from dnslib.server import DNSServer, BaseResolver, DNSHandler
+
+logger = logging.getLogger('dns_proxy')
+
+
+class DNSShieldResolver(BaseResolver):
+    def __init__(self, matcher, upstream_host: str, upstream_port: int):
+        self.matcher = matcher
+        self.upstream_host = upstream_host
+        self.upstream_port = upstream_port
+
+    def resolve(self, request: dnslib.DNSRecord, handler) -> dnslib.DNSRecord:
+        from dns_proxy import forwarder, dns_logger
+
+        start = time.monotonic()
+        domain = str(request.q.qname).rstrip('.')
+        qtype = dnslib.QTYPE[request.q.qtype]
+        client_ip = handler.client_address[0]
+
+        def nxdomain():
+            reply = request.reply()
+            reply.header.rcode = dnslib.RCODE.NXDOMAIN
+            return reply
+
+        # 1. Allowlist — always forward
+        if self.matcher.is_allowed(domain):
+            reply = forwarder.forward(request, self.upstream_host, self.upstream_port)
+            elapsed = (time.monotonic() - start) * 1000
+            resolved_ip = _extract_ip(reply)
+            dns_logger.log_query(domain, client_ip, 'allowed', qtype,
+                                 response_time_ms=elapsed, resolved_ip=resolved_ip)
+            _broadcast(domain, client_ip, 'allowed', qtype, '', elapsed, resolved_ip)
+            return reply
+
+        # 2. Pattern match
+        pattern_match = self.matcher.match_pattern(domain)
+        if pattern_match:
+            pid, pname = pattern_match
+            elapsed = (time.monotonic() - start) * 1000
+            dns_logger.log_query(domain, client_ip, 'blocked_pattern', qtype,
+                                 matched_rule=pname, response_time_ms=elapsed)
+            _broadcast(domain, client_ip, 'blocked_pattern', qtype, pname, elapsed)
+            _increment_pattern_hit(pid)
+            return nxdomain()
+
+        # 3. Domain blocklist
+        domain_match = self.matcher.match_domain(domain)
+        if domain_match:
+            elapsed = (time.monotonic() - start) * 1000
+            dns_logger.log_query(domain, client_ip, 'blocked_domain', qtype,
+                                 matched_rule=domain_match, response_time_ms=elapsed)
+            _broadcast(domain, client_ip, 'blocked_domain', qtype, domain_match, elapsed)
+            _increment_domain_hit(domain_match)
+            return nxdomain()
+
+        # 4. Gravity (adlists)
+        if self.matcher.in_gravity(domain):
+            elapsed = (time.monotonic() - start) * 1000
+            dns_logger.log_query(domain, client_ip, 'blocked_list', qtype,
+                                 response_time_ms=elapsed)
+            _broadcast(domain, client_ip, 'blocked_list', qtype, '', elapsed)
+            return nxdomain()
+
+        # 5. Forward to upstream
+        reply = forwarder.forward(request, self.upstream_host, self.upstream_port)
+        elapsed = (time.monotonic() - start) * 1000
+        status = 'nxdomain' if reply.header.rcode == dnslib.RCODE.NXDOMAIN else 'allowed'
+        resolved_ip = _extract_ip(reply)
+        dns_logger.log_query(domain, client_ip, status, qtype,
+                             response_time_ms=elapsed, resolved_ip=resolved_ip)
+        _broadcast(domain, client_ip, status, qtype, '', elapsed, resolved_ip)
+        return reply
+
+
+def _extract_ip(reply: dnslib.DNSRecord) -> str | None:
+    for rr in reply.rr:
+        if rr.rtype in (dnslib.QTYPE.A, dnslib.QTYPE.AAAA):
+            return str(rr.rdata)
+    return None
+
+
+def _broadcast(domain, client_ip, status, qtype, matched_rule, elapsed, resolved_ip=None):
+    """Fire-and-forget broadcast to WebSocket channel layer."""
+    import importlib
+    try:
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        if channel_layer is None:
+            return
+        data = {
+            'type': 'query_event',
+            'data': {
+                'domain': domain,
+                'client_ip': client_ip,
+                'status': status,
+                'query_type': qtype,
+                'matched_rule': matched_rule,
+                'response_time_ms': round(elapsed, 2),
+                'resolved_ip': resolved_ip,
+                'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            }
+        }
+        async_to_sync(channel_layer.group_send)('query_log', data)
+    except Exception:
+        pass  # WebSocket broadcast is best-effort
+
+
+def _increment_pattern_hit(pattern_id: int):
+    def _do():
+        try:
+            from django.db.models import F
+            from blocks.models import Pattern
+            Pattern.objects.filter(pk=pattern_id).update(hit_count=F('hit_count') + 1)
+        except Exception:
+            pass
+    threading.Thread(target=_do, daemon=True).start()
+
+
+def _increment_domain_hit(domain: str):
+    def _do():
+        try:
+            from django.db.models import F
+            from django.utils import timezone
+            from blocks.models import BlockedDomain
+            BlockedDomain.objects.filter(domain=domain).update(
+                hit_count=F('hit_count') + 1,
+                last_hit=timezone.now()
+            )
+        except Exception:
+            pass
+    threading.Thread(target=_do, daemon=True).start()
+
+
+# ─── Singleton server ────────────────────────────────────────────────────────
+
+_server: DNSServer | None = None
+_server_lock = threading.Lock()
+
+
+def start_proxy(host: str, port: int, upstream_host: str, upstream_port: int,
+                matcher) -> DNSServer:
+    global _server
+    with _server_lock:
+        if _server is not None:
+            return _server
+        resolver = DNSShieldResolver(matcher, upstream_host, upstream_port)
+        _server = DNSServer(resolver, address=host, port=port, tcp=False)
+        _server.start_thread()
+        logger.info(f"DNS proxy listening on {host}:{port} → {upstream_host}:{upstream_port}")
+        return _server
+
+
+def stop_proxy():
+    global _server
+    with _server_lock:
+        if _server:
+            _server.stop()
+            _server = None
