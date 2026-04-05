@@ -169,8 +169,51 @@ function SystemStatus({ status }) {
 
 SystemStatus.propTypes = { status: PropTypes.object }
 
+// ─── Frequency table (Pi-hole style) ───────────────────────────────────────────
+function FrequencyTable({ title, data, color = 'blue' }) {
+  const maxCount = data?.length > 0 ? Math.max(...data.map(d => d.count)) : 1
+  const barColors = {
+    green: 'bg-green-500/20 text-green-400 border-green-500/30',
+    red: 'bg-red-500/20 text-red-400 border-red-500/30',
+    blue: 'bg-brand-500/20 text-brand-400 border-brand-500/30',
+  }
+  const fillColors = {
+    green: 'bg-green-500/40',
+    red: 'bg-red-500/40',
+    blue: 'bg-brand-500/40',
+  }
+
+  return (
+    <div className="card h-full">
+      <h3 className="font-semibold text-white text-sm mb-4">{title}</h3>
+      <div className="space-y-3">
+        {(data || []).map((d, i) => {
+          const percent = (d.count / maxCount) * 100
+          return (
+            <div key={i} className="text-xs group">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-slate-300 font-mono truncate mr-2" title={d.domain}>{d.domain}</span>
+                <span className="text-slate-500 font-medium shrink-0">{d.count?.toLocaleString()} hits</span>
+              </div>
+              <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
+                <div 
+                  className={`h-full ${fillColors[color]} rounded-full transition-all duration-500 ease-out`}
+                  style={{ width: `${percent}%` }}
+                />
+              </div>
+            </div>
+          )
+        })}
+        {!data?.length && <p className="text-slate-600 text-xs italic">No domains recorded yet</p>}
+      </div>
+    </div>
+  )
+}
+
+FrequencyTable.propTypes = { title: PropTypes.string, data: PropTypes.array, color: PropTypes.string }
+
 // ─── Dashboard page ───────────────────────────────────────────────────────────
-export default function Dashboard({ user, summary, hourly, topDomains, topClients, systemStatus }) {
+export default function Dashboard({ user, summary, hourly, topDomains, topAllowedDomains, topClients, systemStatus }) {
   const [liveEntries, setLiveEntries] = useState([])
   const [wsConnected, setWsConnected] = useState(false)
 
@@ -241,50 +284,39 @@ export default function Dashboard({ user, summary, hourly, topDomains, topClient
 
         {/* Top clients */}
         <div className="card">
-          <h3 className="font-semibold text-white text-sm mb-4">Top Clients</h3>
+          <h3 className="font-semibold text-white text-sm mb-4">Top Clients (24h)</h3>
           <div className="space-y-2">
             {(topClients || []).map((c, i) => (
               <div key={i} className="flex items-center gap-2 text-sm">
-                <span className="text-slate-600 w-4 text-right">{i + 1}</span>
+                <span className="text-slate-600 w-4 text-right shrink-0">{i + 1}</span>
                 <div className="flex-1 min-w-0">
                   <div className="text-slate-300 truncate">{c.name || c.client_ip}</div>
-                  {c.name && <div className="text-xs text-slate-600">{c.client_ip}</div>}
+                  {c.name && <div className="text-xs text-slate-600 font-mono">{c.client_ip}</div>}
                 </div>
-                <span className="shrink-0 text-xs text-slate-500">{c.count?.toLocaleString()}</span>
+                <span className="shrink-0 text-xs text-slate-500 tabular-nums">{c.count?.toLocaleString()}</span>
               </div>
             ))}
-            {!topClients?.length && <p className="text-slate-600 text-xs">No data yet</p>}
+            {!topClients?.length && <p className="text-slate-600 text-xs text-center py-4">No activity yet</p>}
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Top blocked domains */}
-        <div className="card">
-          <h3 className="font-semibold text-white text-sm mb-4">Top Blocked Domains (24h)</h3>
-          <div className="space-y-1.5">
-            {(topDomains || []).map((d, i) => (
-              <div key={i} className="flex items-center gap-2 text-sm">
-                <span className="text-slate-600 w-4 text-right shrink-0">{i + 1}</span>
-                <span className="flex-1 text-slate-300 font-mono text-xs truncate">{d.domain}</span>
-                <span className="badge-red shrink-0">{d.count}</span>
-              </div>
-            ))}
-            {!topDomains?.length && <p className="text-slate-600 text-xs">No blocked domains yet</p>}
-          </div>
-        </div>
+      {/* Top lists row (Pi-hole parity) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        <FrequencyTable title="Top Domains (Allowed)" data={topAllowedDomains} color="green" />
+        <FrequencyTable title="Top Blocked Domains" data={topDomains} color="red" />
+      </div>
 
-        {/* Live feed */}
-        <div className="card">
-          <div className="flex items-center gap-2 mb-4">
-            <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500 animate-pulse' : 'bg-slate-600'}`} />
-            <h3 className="font-semibold text-white text-sm">
-              Live Query Feed
-              {!wsConnected && <span className="text-xs text-slate-500 ml-2">(reconnecting…)</span>}
-            </h3>
-          </div>
-          <LiveFeed entries={liveEntries} />
+      {/* Live feed */}
+      <div className="card">
+        <div className="flex items-center gap-2 mb-4">
+          <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500 animate-pulse' : 'bg-slate-600'}`} />
+          <h3 className="font-semibold text-white text-sm">
+            Live Query Feed
+            {!wsConnected && <span className="text-xs text-slate-500 ml-2">(reconnecting…)</span>}
+          </h3>
         </div>
+        <LiveFeed entries={liveEntries} />
       </div>
     </Layout>
   )
@@ -295,6 +327,7 @@ Dashboard.propTypes = {
   summary: PropTypes.object,
   hourly: PropTypes.array,
   topDomains: PropTypes.array,
+  topAllowedDomains: PropTypes.array,
   topClients: PropTypes.array,
   systemStatus: PropTypes.object,
 }

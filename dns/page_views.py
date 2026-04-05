@@ -93,11 +93,12 @@ def login_page(request):
 def dashboard(request):
     from dns.views import (
         StatsSummaryView, StatsHourlyView, StatsTopDomainsView,
-        StatsTopClientsView, SystemStatusView
+        StatsTopAllowedDomainsView, StatsTopClientsView, SystemStatusView
     )
     summary = _call_view(StatsSummaryView, request)
     hourly = _call_view(StatsHourlyView, request)
     top_domains = _call_view(StatsTopDomainsView, request)
+    top_allowed_domains = _call_view(StatsTopAllowedDomainsView, request)
     top_clients = _call_view(StatsTopClientsView, request)
     system_status = _call_view(SystemStatusView, request)
     user_data = _user_props(request.user)
@@ -107,6 +108,7 @@ def dashboard(request):
         'summary': summary,
         'hourly': hourly,
         'topDomains': top_domains,
+        'topAllowedDomains': top_allowed_domains,
         'topClients': top_clients,
         'systemStatus': system_status,
     })

@@ -14,6 +14,7 @@ urlpatterns = [
     path('stats/summary', views.StatsSummaryView.as_view()),
     path('stats/hourly', views.StatsHourlyView.as_view()),
     path('stats/top-domains', views.StatsTopDomainsView.as_view()),
+    path('stats/top-allowed-domains', views.StatsTopAllowedDomainsView.as_view()),
     path('stats/top-clients', views.StatsTopClientsView.as_view()),
 
     # Query Log

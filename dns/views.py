@@ -148,6 +148,21 @@ class StatsTopDomainsView(APIView):
         return Response(list(data))
 
 
+class StatsTopAllowedDomainsView(APIView):
+    def get(self, request):
+        since = dj_timezone.now() - timedelta(hours=24)
+        data = (
+            QueryLog.objects.filter(
+                timestamp__gte=since,
+                status='allowed'
+            )
+            .values('domain')
+            .annotate(count=Count('id'))
+            .order_by('-count')[:10]
+        )
+        return Response(list(data))
+
+
 class StatsTopClientsView(APIView):
     def get(self, request):
         since = dj_timezone.now() - timedelta(hours=24)
