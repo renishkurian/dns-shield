@@ -51,11 +51,29 @@ To install DNS Shield on a fresh Debian Bookworm system (e.g., Raspberry Pi 4/5)
 
 ---
 
+---
+
 ## ⚙️ Configuration
 
 - **Unbound**: DNS Shield expects an upstream recursive resolver like Unbound running on `127.0.0.1:5335`.
 - **Environment**: Customize `.env` for production secrets, allowed hosts, and Redis URL.
 - **Sudoers**: The `www-data` user requires specific NOPASSWD permissions for `iptables` and `unbound` management (provided in `sudoers.d/`).
+
+---
+
+## 🧪 Diagnostics & Development
+
+DNS Shield includes built-in tools for testing and maintaining high-performance DNS features:
+
+- **Seed Database**: Generate realistic, technical test data for the Query Log.
+  ```bash
+  python3 manage.py seed_data --queries 100
+  ```
+- **Clear Logs**: Instantly wipe all query logs for a fresh start.
+  ```bash
+  python3 manage.py seed_data --clear
+  ```
+- **Test Mode**: While the shield is disabled (via the UI), all filtering logic is bypassed to help troubleshoot upstream connectivity.
 
 ---
 

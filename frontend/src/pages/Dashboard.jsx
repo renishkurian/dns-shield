@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
-import { Activity, Shield, Clock, Percent, TrendingUp } from 'lucide-react'
+import { Activity, Shield, Clock, Percent, TrendingUp, PieChart } from 'lucide-react'
+import DoughnutChart from '../components/DoughnutChart'
 import { usePage } from '@inertiajs/react'
 
 // ─── Stat card ───────────────────────────────────────────────────────────────
@@ -215,9 +216,32 @@ FrequencyTable.propTypes = { title: PropTypes.string, data: PropTypes.array, col
 // ─── Dashboard page ───────────────────────────────────────────────────────────
 export default function Dashboard({ user, summary, hourly, topDomains, topAllowedDomains, topClients, systemStatus }) {
   const [liveEntries, setLiveEntries] = useState([])
+  const [queryTypes, setQueryTypes] = useState([])
+  const [upstreamStats, setUpstreamStats] = useState([])
   const [wsConnected, setWsConnected] = useState(false)
 
+  const fetchStats = async () => {
+    try {
+      const qRes = await fetch('/api/stats/query-types')
+      const qData = await qRes.json()
+      setQueryTypes(qData.map(d => ({ label: d.query_type, count: d.count })))
+
+      const uRes = await fetch('/api/stats/upstream-servers')
+      const uData = await uRes.json()
+      setUpstreamStats(uData.map(d => {
+        let color = '#3b82f6' // Default blue for cache
+        if (d.label === 'Blocked') color = '#ef4444' // Red for blocked
+        else if (d.label === 'Cache') color = '#06b6d4' // Cyan for cache
+        else color = `hsl(calc(var(--brand-hue) + 120deg), 60%, 45%)` // Greenish for real upstreams
+        return { label: d.label, count: d.count, color }
+      }))
+    } catch (e) {
+      console.error('Failed to fetch analytics:', e)
+    }
+  }
+
   useEffect(() => {
+    fetchStats()
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
     const ws = new WebSocket(`${protocol}://${location.host}/ws/queries`)
     ws.onopen = () => setWsConnected(true)
@@ -302,7 +326,19 @@ export default function Dashboard({ user, summary, hourly, topDomains, topAllowe
       </div>
 
       {/* Top lists row (Pi-hole parity) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+      {/* Analytics Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <div className="card">
+          <h3 className="font-semibold text-white text-sm mb-4">Query Types</h3>
+          <DoughnutChart data={queryTypes} size={150} />
+        </div>
+        <div className="card">
+          <h3 className="font-semibold text-white text-sm mb-4">Upstream Servers</h3>
+          <DoughnutChart data={upstreamStats} size={150} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         <FrequencyTable title="Top Domains (Allowed)" data={topAllowedDomains} color="green" />
         <FrequencyTable title="Top Blocked Domains" data={topDomains} color="red" />
       </div>

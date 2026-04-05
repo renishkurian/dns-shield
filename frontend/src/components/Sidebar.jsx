@@ -6,6 +6,7 @@ import {
   Users, Settings, Search, Network, Download, LogOut,
   ChevronLeft, ChevronRight, Wifi, User, Database, Menu, BookOpen, Sparkles
 } from 'lucide-react'
+import ShieldControl from './ShieldControl'
 
 const navGroups = [
   {
@@ -127,6 +128,9 @@ export default function Sidebar({ currentPath, user }) {
           </button>
         </div>
       </div>
+
+      {/* Shield Control (Admin only) */}
+      {!collapsed && (user?.role === 'admin') && <ShieldControl />}
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-2 space-y-4">

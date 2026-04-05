@@ -226,6 +226,29 @@ export default function QueryLog({ user, initialQueries = [] }) {
     return true
   })
 
+  const seedData = async () => {
+    if (!confirm('Seed 50 test queries?')) return
+    setActing({ domain: 'Seeding...', type: 'seed' })
+    const res = await fetch('/api/system/seed-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+      body: JSON.stringify({ count: 50 })
+    })
+    setActing(null)
+    if (res.ok) window.location.reload()
+  }
+
+  const clearLogs = async () => {
+    if (!confirm('Permanently clear ALL query logs?')) return
+    setActing({ domain: 'Clearing...', type: 'clear' })
+    const res = await fetch('/api/system/clear-queries', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': getCsrf() }
+    })
+    setActing(null)
+    if (res.ok) setEntries([])
+  }
+
   const exportCsv = () => {
     window.open('/api/queries/export', '_blank')
   }
@@ -251,6 +274,16 @@ export default function QueryLog({ user, initialQueries = [] }) {
             {paused ? <Play size={14} /> : <Pause size={14} />}
             {paused ? 'Resume' : 'Pause'}
           </button>
+          
+          <div className="h-4 w-px bg-slate-700 mx-2" />
+
+          <button onClick={seedData} className="btn-ghost text-brand-400">
+            <Activity size={14} /> Seed
+          </button>
+          <button onClick={clearLogs} className="btn-ghost text-red-400">
+            <Trash size={14} /> Clear
+          </button>
+
           <button onClick={exportCsv} className="btn-ghost">
             <Download size={14} /> CSV
           </button>

@@ -16,6 +16,8 @@ urlpatterns = [
     path('stats/top-domains', views.StatsTopDomainsView.as_view()),
     path('stats/top-allowed-domains', views.StatsTopAllowedDomainsView.as_view()),
     path('stats/top-clients', views.StatsTopClientsView.as_view()),
+    path('stats/query-types', views.StatsQueryTypesView.as_view()),
+    path('stats/upstream-servers', views.StatsUpstreamServersView.as_view()),
 
     # Query Log
     path('queries', views.QueryLogListView.as_view()),
@@ -87,4 +89,12 @@ urlpatterns = [
     path('system/reload-proxy', views.SystemReloadProxyView.as_view()),
     path('system/unbound/detect', views.UnboundDetectView.as_view()),
     path('system/backup', views.SystemBackupView.as_view()),
+    
+    # Diagnostics
+    path('system/seed-data', views.SeedDataView.as_view()),
+    path('system/clear-queries', views.ClearQueryLogView.as_view()),
+
+    # Shield Control
+    path('system/shield-status', views.ShieldStatusView.as_view()),
+    path('system/shield-toggle', views.ShieldToggleView.as_view()),
 ]

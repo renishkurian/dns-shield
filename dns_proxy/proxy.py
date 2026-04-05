@@ -27,7 +27,20 @@ class DNSShieldResolver(BaseResolver):
         qtype = dnslib.QTYPE[request.q.qtype]
         client_ip = handler.client_address[0]
 
-        # 0. Check Cache
+        # 0. Check Shield Status
+        from dns.shield import is_shield_active
+        if not is_shield_active():
+            reply = forwarder.forward(request, self.upstream_host, self.upstream_port)
+            elapsed = (time.monotonic() - start) * 1000
+            resolved_ip = _extract_ip(reply)
+            dns_logger.log_query(domain, client_ip, 'allowed', qtype,
+                                 response_time_ms=elapsed, resolved_ip=resolved_ip,
+                                 resolved_by=f"{self.upstream_host} (Shield Off)", ttl=_get_min_ttl(reply))
+            _broadcast(domain, client_ip, 'allowed', qtype, '', elapsed,
+                       resolved_ip=resolved_ip, resolved_by=f"{self.upstream_host} (Shield Off)")
+            return reply
+
+        # 0.1 Check Cache
         cached_resp = dns_cache.get(request)
         if cached_resp:
             elapsed = (time.monotonic() - start) * 1000

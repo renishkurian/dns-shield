@@ -172,7 +172,6 @@ class StatsTopClientsView(APIView):
             .annotate(count=Count('id'))
             .order_by('-count')[:5]
         )
-        results = []
         for item in data:
             try:
                 name = Client.objects.get(ip=item['client_ip']).name
@@ -180,6 +179,35 @@ class StatsTopClientsView(APIView):
                 name = ''
             results.append({**item, 'name': name})
         return Response(results)
+
+
+class StatsQueryTypesView(APIView):
+    def get(self, request):
+        since = dj_timezone.now() - timedelta(hours=24)
+        data = (
+            QueryLog.objects.filter(timestamp__gte=since)
+            .values('query_type')
+            .annotate(count=Count('id'))
+            .order_by('-count')
+        )
+        return Response(list(data))
+
+
+class StatsUpstreamServersView(APIView):
+    def get(self, request):
+        since = dj_timezone.now() - timedelta(hours=24)
+        data = (
+            QueryLog.objects.filter(timestamp__gte=since)
+            .values('resolved_by')
+            .annotate(count=Count('id'))
+            .order_by('-count')
+        )
+        formatted = []
+        for d in data:
+            label = d['resolved_by']
+            if not label: label = 'Blocked'
+            formatted.append({'label': label, 'count': d['count']})
+        return Response(formatted)
 
 
 # ─── QUERY LOG ────────────────────────────────────────────────────────────────
@@ -1021,6 +1049,62 @@ class UnboundDetectView(APIView):
             })
         except Exception as e:
             return Response({'error': str(e)}, status=500)
+
+
+class SeedDataView(APIView):
+    def post(self, request):
+        from django.core.management import call_command
+        count = request.data.get('count', 50)
+        try:
+            call_command('seed_data', queries=count)
+            return Response({'status': 'ok', 'message': f'Seeded {count} queries'})
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+
+
+class ClearQueryLogView(APIView):
+    def post(self, request):
+        from dns.models import QueryLog
+        try:
+            QueryLog.objects.all().delete()
+            return Response({'status': 'ok', 'message': 'Cleared all logs'})
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+    
+    def delete(self, request):
+        return self.post(request)
+
+
+class ShieldStatusView(APIView):
+    def get(self, request):
+        from .shield import is_shield_active, _shield_cache
+        import time
+        active = is_shield_active()
+        remaining = 0
+        if not active and _shield_cache['disabled_until'] > 0:
+            remaining = int(_shield_cache['disabled_until'] - time.time())
+            if remaining < 0: remaining = 0
+        
+        return Response({
+            'active': active,
+            'remaining_seconds': remaining,
+            'disabled_until': _shield_cache['disabled_until']
+        })
+
+
+class ShieldToggleView(APIView):
+    def post(self, request):
+        from .shield import set_shield_status
+        active = request.data.get('active', True)
+        duration = request.data.get('duration', 0) # in minutes
+        
+        set_shield_status(active, duration_minutes=duration)
+        
+        return Response({
+            'status': 'ok',
+            'active': active,
+            'duration': duration
+        })
 
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
