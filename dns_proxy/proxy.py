@@ -19,14 +19,28 @@ class DNSShieldResolver(BaseResolver):
         self.upstream_port = upstream_port
 
     def resolve(self, request: dnslib.DNSRecord, handler) -> dnslib.DNSRecord:
-        from dns_proxy import forwarder, dns_logger
+        from dns_proxy import forwarder, dns_logger, cache
+        dns_cache = cache.get_cache()
 
         start = time.monotonic()
         domain = str(request.q.qname).rstrip('.')
         qtype = dnslib.QTYPE[request.q.qtype]
         client_ip = handler.client_address[0]
 
-        # 0. Resolve Identity
+        # 0. Check Cache
+        cached_resp = dns_cache.get(request)
+        if cached_resp:
+            elapsed = (time.monotonic() - start) * 1000
+            resolved_ip = _extract_ip(cached_resp)
+            ttl = _get_min_ttl(cached_resp)
+            dns_logger.log_query(domain, client_ip, 'allowed', qtype, 
+                                 response_time_ms=elapsed, resolved_ip=resolved_ip,
+                                 resolved_by='Cache', ttl=ttl)
+            _broadcast(domain, client_ip, 'allowed', qtype, '', elapsed, 
+                       resolved_ip=resolved_ip, resolved_by='Cache', ttl=ttl)
+            return cached_resp
+
+        # 0.1 Resolve Identity
         group_id = _resolve_identity(client_ip)
 
         def nxdomain():
@@ -39,9 +53,15 @@ class DNSShieldResolver(BaseResolver):
             reply = forwarder.forward(request, self.upstream_host, self.upstream_port)
             elapsed = (time.monotonic() - start) * 1000
             resolved_ip = _extract_ip(reply)
+            dnssec = _get_dnssec_status(reply)
+            ttl = _get_min_ttl(reply)
             dns_logger.log_query(domain, client_ip, 'allowed', qtype,
-                                 response_time_ms=elapsed, resolved_ip=resolved_ip)
-            _broadcast(domain, client_ip, 'allowed', qtype, '', elapsed, resolved_ip)
+                                 response_time_ms=elapsed, resolved_ip=resolved_ip,
+                                 resolved_by=self.upstream_host, dnssec_status=dnssec, ttl=ttl)
+            _broadcast(domain, client_ip, 'allowed', qtype, '', elapsed, 
+                       resolved_ip=resolved_ip, resolved_by=self.upstream_host, 
+                       dnssec_status=dnssec, ttl=ttl)
+            dns_cache.put(request, reply)
             return reply
 
         # 2. Pattern match
@@ -50,8 +70,10 @@ class DNSShieldResolver(BaseResolver):
             pid, pname = pattern_match
             elapsed = (time.monotonic() - start) * 1000
             dns_logger.log_query(domain, client_ip, 'blocked_pattern', qtype,
-                                 matched_rule=pname, response_time_ms=elapsed)
-            _broadcast(domain, client_ip, 'blocked_pattern', qtype, pname, elapsed)
+                                 matched_rule=pname, response_time_ms=elapsed,
+                                 resolved_by='Blocked (Pattern)')
+            _broadcast(domain, client_ip, 'blocked_pattern', qtype, pname, elapsed, 
+                       resolved_by='Blocked (Pattern)')
             _increment_pattern_hit(pid)
             return nxdomain()
 
@@ -60,8 +82,10 @@ class DNSShieldResolver(BaseResolver):
         if domain_match:
             elapsed = (time.monotonic() - start) * 1000
             dns_logger.log_query(domain, client_ip, 'blocked_domain', qtype,
-                                 matched_rule=domain_match, response_time_ms=elapsed)
-            _broadcast(domain, client_ip, 'blocked_domain', qtype, domain_match, elapsed)
+                                 matched_rule=domain_match, response_time_ms=elapsed,
+                                 resolved_by='Blocked (Domain)')
+            _broadcast(domain, client_ip, 'blocked_domain', qtype, domain_match, elapsed,
+                       resolved_by='Blocked (Domain)')
             _increment_domain_hit(domain_match)
             return nxdomain()
 
@@ -69,16 +93,19 @@ class DNSShieldResolver(BaseResolver):
         if self.matcher.in_gravity(domain):
             elapsed = (time.monotonic() - start) * 1000
             dns_logger.log_query(domain, client_ip, 'blocked_list', qtype,
-                                 response_time_ms=elapsed)
-            _broadcast(domain, client_ip, 'blocked_list', qtype, '', elapsed)
+                                 response_time_ms=elapsed, resolved_by='Blocked (Gravity)')
+            _broadcast(domain, client_ip, 'blocked_list', qtype, '', elapsed, 
+                       resolved_by='Blocked (Gravity)')
             return nxdomain()
 
         # 4.5 AI Heuristic (DGA)
         if self.matcher.is_dga(domain):
             elapsed = (time.monotonic() - start) * 1000
             dns_logger.log_query(domain, client_ip, 'blocked_ai', qtype,
-                                 matched_rule='AI: High Entropy (DGA)', response_time_ms=elapsed)
-            _broadcast(domain, client_ip, 'blocked_ai', qtype, 'AI: High Entropy (DGA)', elapsed)
+                                 matched_rule='AI: High Entropy (DGA)', response_time_ms=elapsed,
+                                 resolved_by='Blocked (AI)')
+            _broadcast(domain, client_ip, 'blocked_ai', qtype, 'AI: High Entropy (DGA)', elapsed,
+                       resolved_by='Blocked (AI)')
             return nxdomain()
 
         # 5. Forward to upstream
@@ -86,9 +113,16 @@ class DNSShieldResolver(BaseResolver):
         elapsed = (time.monotonic() - start) * 1000
         status = 'nxdomain' if reply.header.rcode == dnslib.RCODE.NXDOMAIN else 'allowed'
         resolved_ip = _extract_ip(reply)
+        dnssec = _get_dnssec_status(reply)
+        ttl = _get_min_ttl(reply)
         dns_logger.log_query(domain, client_ip, status, qtype,
-                             response_time_ms=elapsed, resolved_ip=resolved_ip)
-        _broadcast(domain, client_ip, status, qtype, '', elapsed, resolved_ip)
+                             response_time_ms=elapsed, resolved_ip=resolved_ip,
+                             resolved_by=self.upstream_host, dnssec_status=dnssec, ttl=ttl)
+        _broadcast(domain, client_ip, status, qtype, '', elapsed, 
+                   resolved_ip=resolved_ip, resolved_by=self.upstream_host, 
+                   dnssec_status=dnssec, ttl=ttl)
+        if status == 'allowed':
+            dns_cache.put(request, reply)
         return reply
 
 
@@ -115,7 +149,26 @@ def _extract_ip(reply: dnslib.DNSRecord) -> str | None:
     return None
 
 
-def _broadcast(domain, client_ip, status, qtype, matched_rule, elapsed, resolved_ip=None):
+def _get_min_ttl(reply: dnslib.DNSRecord) -> int:
+    ttls = [rr.ttl for rr in reply.rr if rr.ttl > 0]
+    return min(ttls) if ttls else 0
+
+
+def _get_dnssec_status(reply: dnslib.DNSRecord) -> str:
+    """Very basic DNSSEC detection — checking for AD bit or DO bit presence isn't enough, 
+    but we look if the record has any RRSIG or DNSKEY types in additional records."""
+    ad_bit = reply.header.ad
+    if ad_bit:
+        return 'SECURE'
+    # Fallback to checking for signatures
+    for rr in reply.auth + reply.ar:
+        if rr.rtype in (dnslib.QTYPE.RRSIG, dnslib.QTYPE.DNSKEY, dnslib.QTYPE.DS):
+            return 'INSECURE' # Present but not validated by us
+    return 'N/A'
+
+
+def _broadcast(domain, client_ip, status, qtype, matched_rule, elapsed, 
+               resolved_ip=None, resolved_by='', dnssec_status='N/A', ttl=0):
     """Fire-and-forget broadcast to WebSocket channel layer."""
     import importlib
     try:
@@ -134,6 +187,9 @@ def _broadcast(domain, client_ip, status, qtype, matched_rule, elapsed, resolved
                 'matched_rule': matched_rule,
                 'response_time_ms': round(elapsed, 2),
                 'resolved_ip': resolved_ip,
+                'resolved_by': resolved_by,
+                'dnssec_status': dnssec_status,
+                'ttl': ttl,
                 'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
             }
         }

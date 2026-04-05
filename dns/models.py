@@ -17,7 +17,10 @@ class QueryLog(models.Model):
     matched_rule = models.CharField(max_length=255, blank=True)
     response_time_ms = models.FloatField(default=0)
     resolved_ip = models.GenericIPAddressField(null=True, blank=True)
+    resolved_by = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    dnssec_status = models.CharField(max_length=20, default='N/A', db_index=True)
     query_type = models.CharField(max_length=10, default='A')
+    ttl = models.IntegerField(default=0)
 
     class Meta:
         ordering = ['-timestamp']

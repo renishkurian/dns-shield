@@ -70,7 +70,8 @@ def stop():
 
 def log_query(domain: str, client_ip: str, status: str, query_type: str,
               matched_rule: str = '', response_time_ms: float = 0,
-              resolved_ip: str | None = None):
+              resolved_ip: str | None = None, resolved_by: str = '',
+              dnssec_status: str = 'N/A', ttl: int = 0):
     """Enqueue a query log entry (non-blocking)."""
     try:
         from dns.models import QueryLog
@@ -82,6 +83,9 @@ def log_query(domain: str, client_ip: str, status: str, query_type: str,
             matched_rule=matched_rule,
             response_time_ms=response_time_ms,
             resolved_ip=resolved_ip,
+            resolved_by=resolved_by,
+            dnssec_status=dnssec_status,
+            ttl=ttl,
         )
         _queue.put_nowait(entry)
     except queue.Full:

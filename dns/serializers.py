@@ -22,7 +22,8 @@ class QueryLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = QueryLog
         fields = ['id', 'timestamp', 'domain', 'client_ip', 'status',
-                  'matched_rule', 'response_time_ms', 'resolved_ip', 'query_type']
+                  'matched_rule', 'response_time_ms', 'resolved_ip', 
+                  'resolved_by', 'dnssec_status', 'query_type', 'ttl']
 
 
 # ─── Block Group ─────────────────────────────────────────────────────────────

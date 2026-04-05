@@ -1,25 +1,40 @@
 import React, { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
-import { Pause, Play, Download, Filter, X, ChevronRight, Shield, CheckCircle, Sparkles } from 'lucide-react'
+import { 
+  Play, Pause, Download, Shield, Activity, 
+  CheckCircle, XCircle, Search, Trash, 
+  Lock, Unlock, Database, ArrowRight,
+  Loader2, RefreshCw, X, Sparkles
+} from 'lucide-react'
 
 const STATUS_LABELS = {
   allowed:         { label: 'Allowed',        cls: 'badge-green' },
   blocked_pattern: { label: 'Pattern',        cls: 'badge-red' },
   blocked_domain:  { label: 'Domain',         cls: 'badge-red' },
-  blocked_list:    { label: 'List',           cls: 'badge-yellow' },
+  blocked_ai:      { label: 'Blocked (AI)',   cls: 'badge-red' },
   nxdomain:        { label: 'NXDOMAIN',       cls: 'badge-gray' },
+}
+
+const RESOLUTION_ICONS = {
+  'Cache': Database,
+  'Blocked (Gravity)': Shield,
+  'Blocked (Domain)': Shield,
+  'Blocked (Pattern)': Shield,
+  'Blocked (AI)': Sparkles,
 }
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
 }
 
-function QuickActionPanel({ domain, onClose }) {
+function QueryInspector({ entry, onClose }) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [aiExplanation, setAiExplanation] = useState(null)
   const [askingAi, setAskingAi] = useState(false)
+
+  const { domain } = entry
 
   useEffect(() => {
     setResult(null)
@@ -61,81 +76,104 @@ function QuickActionPanel({ domain, onClose }) {
     try {
       const res = await fetch(`/api/ai/explain?domain=${encodeURIComponent(domain)}`)
       const data = await res.json()
-      if (res.ok) {
-        setAiExplanation(data.explanation)
-      } else {
-        setAiExplanation(`Error: ${data.error}`)
-      }
+      if (res.ok) setAiExplanation(data.explanation)
+      else setAiExplanation(`Error: ${data.error}`)
     } finally {
       setAskingAi(false)
     }
   }
 
   return (
-    <div className="card animate-slide-in w-80 shrink-0">
+    <div className="card animate-slide-in w-80 shrink-0 h-fit sticky top-20">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-white text-sm">Domain Inspector</h3>
+        <h3 className="font-semibold text-white text-sm">Query Inspector</h3>
         <button onClick={onClose} className="text-slate-500 hover:text-white">
           <X size={16} />
         </button>
       </div>
-      <p className="font-mono text-xs text-brand-400 break-all mb-4">{domain}</p>
-      {result ? (
-        <div className="mb-4 p-3 bg-surface-100 rounded-lg text-xs space-y-1">
+
+      <div className="mb-4">
+        <p className="font-mono text-xs text-brand-400 break-all">{domain}</p>
+        <p className="text-[10px] text-slate-600 mt-1">{new Date(entry.timestamp).toLocaleString()}</p>
+      </div>
+
+      <div className="space-y-4">
+        {/* Technical metadata */}
+        <div className="bg-surface-100 rounded-lg p-3 space-y-2 text-[11px]">
           <div className="flex justify-between">
             <span className="text-slate-500">Status</span>
-            <span className={STATUS_LABELS[result.result]?.cls || 'text-slate-300'}>
-              {result.result}
+            <span className={STATUS_LABELS[entry.status]?.cls || 'badge-gray'}>{entry.status}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-500">Resolved By</span>
+            <span className="text-slate-300 font-medium flex items-center gap-1">
+               {entry.resolved_by === 'Cache' ? <Database size={10} /> : <ArrowRight size={10} />}
+               {entry.resolved_by || '—'}
             </span>
           </div>
-          {result.rule && (
-            <div className="flex justify-between">
-              <span className="text-slate-500">Rule</span>
-              <span className="text-slate-300 font-mono">{result.rule}</span>
+          <div className="flex justify-between">
+            <span className="text-slate-500">DNSSEC</span>
+            <span className={`font-bold flex items-center gap-1 ${entry.dnssec_status === 'SECURE' ? 'text-green-500' : 'text-slate-400'}`}>
+               {entry.dnssec_status === 'SECURE' ? <Lock size={10} /> : <Unlock size={10} />}
+               {entry.dnssec_status}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-500">TTL</span>
+            <span className="text-slate-300">{entry.ttl}s</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-500">Response Time</span>
+            <span className="text-slate-300">{entry.response_time_ms.toFixed(2)} ms</span>
+          </div>
+          {entry.resolved_ip && (
+            <div className="flex justify-between border-t border-slate-700/50 pt-1 mt-1">
+              <span className="text-slate-500">Answer</span>
+              <span className="text-slate-300 font-mono truncate ml-4" title={entry.resolved_ip}>{entry.resolved_ip}</span>
             </div>
           )}
         </div>
-      ) : (
-        <div className="mb-4 text-xs text-slate-500">Checking…</div>
-      )}
-      <div className="flex gap-2">
-        <button onClick={blockDomain} disabled={loading} className="btn-danger flex-1 justify-center text-xs">
-          <Shield size={12} /> Block
-        </button>
-        <button onClick={allowDomain} disabled={loading} className="btn-success flex-1 justify-center text-xs py-1.5">
-          <CheckCircle size={12} /> Allow
-        </button>
-      </div>
 
-      <div className="mt-4 border-t border-slate-700/50 pt-4">
-        {!aiExplanation ? (
-          <button 
-            onClick={askAi} 
-            disabled={askingAi} 
-            className="w-full flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg border border-purple-500/30 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 disabled:opacity-50 transition-colors"
-          >
-            <Sparkles size={14} className={askingAi ? 'animate-pulse' : ''} />
-            {askingAi ? 'Analyzing...' : 'Ask AI'}
+        {/* Action buttons */}
+        <div className="flex gap-2">
+          <button onClick={blockDomain} disabled={loading} className="btn-danger flex-1 justify-center text-xs py-1.5">
+            <Shield size={12} /> Block
           </button>
-        ) : (
-          <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg text-xs leading-relaxed text-slate-300">
-            <div className="flex items-center gap-2 font-bold text-purple-400 mb-2">
-              <Sparkles size={12} /> AI Analysis
+          <button onClick={allowDomain} disabled={loading} className="btn-success flex-1 justify-center text-xs py-1.5">
+            <CheckCircle size={12} /> Allow
+          </button>
+        </div>
+
+        {/* AI Analysis section */}
+        <div className="pt-2">
+          {!aiExplanation ? (
+            <button 
+              onClick={askAi} 
+              disabled={askingAi} 
+              className="w-full flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg border border-purple-500/30 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 disabled:opacity-50 transition-colors"
+            >
+              <Sparkles size={14} className={askingAi ? 'animate-pulse' : ''} />
+              {askingAi ? 'Analyzing...' : 'Ask AI Analysis'}
+            </button>
+          ) : (
+            <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg text-xs leading-relaxed text-slate-300">
+              <div className="flex items-center gap-2 font-bold text-purple-400 mb-2">
+                <Sparkles size={12} /> AI Insight
+              </div>
+              {aiExplanation}
             </div>
-            {aiExplanation}
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )
 }
-
-QuickActionPanel.propTypes = { domain: PropTypes.string, onClose: PropTypes.func }
+QueryInspector.propTypes = { entry: PropTypes.object, onClose: PropTypes.func }
 
 export default function QueryLog({ user, initialQueries = [] }) {
   const [entries, setEntries] = useState(initialQueries)
   const [paused, setPaused] = useState(false)
-  const [selectedDomain, setSelectedDomain] = useState(null)
+  const [selectedEntry, setSelectedEntry] = useState(null)
   const [filters, setFilters] = useState({ status: '', client: '', domain: '' })
   const [acting, setActing] = useState(null) // { domain, type }
   const wsRef = useRef(null)
@@ -231,7 +269,7 @@ export default function QueryLog({ user, initialQueries = [] }) {
                   <th className="text-left px-4 py-3">Type</th>
                   <th className="text-left px-4 py-3">Client</th>
                   <th className="text-left px-4 py-3">Status</th>
-                  <th className="text-left px-4 py-3">Rule</th>
+                  <th className="text-left px-4 py-3">Answered By / Rule</th>
                   <th className="text-right px-4 py-3">ms</th>
                   <th className="text-center px-4 py-3">Actions</th>
                 </tr>
@@ -242,14 +280,34 @@ export default function QueryLog({ user, initialQueries = [] }) {
                   const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '—'
                   return (
                     <tr key={i} className="table-row-hover border-b border-slate-800/50"
-                        onClick={() => setSelectedDomain(e.domain === selectedDomain ? null : e.domain)}>
+                        onClick={() => setSelectedEntry(selectedEntry?.id === e.id ? null : e)}>
                       <td className="px-4 py-2 text-slate-500 font-mono whitespace-nowrap">{ts}</td>
-                      <td className="px-4 py-2 font-mono text-slate-200 max-w-xs truncate">{e.domain}</td>
+                      <td className="px-4 py-2 font-mono text-slate-200 max-w-xs truncate flex items-center gap-1.5">
+                        {e.dnssec_status === 'SECURE' && <Lock size={12} className="text-green-500" title="DNSSEC: Secure" />}
+                        {e.dnssec_status === 'INSECURE' && <Unlock size={12} className="text-yellow-500" title="DNSSEC: Insecure (not validated)" />}
+                        {e.domain}
+                      </td>
                       <td className="px-4 py-2 text-slate-500">{e.query_type}</td>
                       <td className="px-4 py-2 text-slate-400 font-mono">{e.client_ip}</td>
-                      <td className="px-4 py-2"><span className={s.cls}>{s.label}</span></td>
-                      <td className="px-4 py-2 text-slate-500 font-mono max-w-[120px] truncate">{e.matched_rule}</td>
-                      <td className="px-4 py-2 text-right text-slate-500">
+                      <td className="px-4 py-2 flex items-center gap-1.5">
+                        <span className={s.cls}>{s.label}</span>
+                        {e.resolved_by === 'Cache' && <Database size={12} className="text-brand-400" title="Served from Cache" />}
+                      </td>
+                      <td className="px-4 py-2">
+                        <div className="flex items-center gap-1.5 text-slate-500 italic">
+                          {(() => {
+                            const Icon = RESOLUTION_ICONS[e.resolved_by] || ArrowRight
+                            const text = e.status.startsWith('blocked') ? (e.matched_rule || 'Blocklist') : (e.resolved_by || '—')
+                            return (
+                              <>
+                                <Icon size={12} className="shrink-0" />
+                                <span className="truncate max-w-[150px]" title={text}>{text}</span>
+                              </>
+                            )
+                          })()}
+                        </div>
+                      </td>
+                                            <td className="px-4 py-2 text-right text-slate-500">
                         {e.response_time_ms != null ? e.response_time_ms.toFixed(1) : '—'}
                       </td>
                       <td className="px-4 py-2">
@@ -284,8 +342,11 @@ export default function QueryLog({ user, initialQueries = [] }) {
         </div>
 
         {/* Side panel */}
-        {selectedDomain && (
-          <QuickActionPanel domain={selectedDomain} onClose={() => setSelectedDomain(null)} />
+        {selectedEntry && (
+          <QueryInspector 
+            entry={selectedEntry} 
+            onClose={() => setSelectedEntry(null)} 
+          />
         )}
       </div>
     </Layout>
