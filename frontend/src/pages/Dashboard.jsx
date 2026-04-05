@@ -215,15 +215,15 @@ export default function Dashboard({ user, summary, hourly, topDomains, topClient
           color="red"
         />
         <StatCard
-          label="Block Rate"
+          label="Block Rate Today"
           value={`${summary?.block_percent ?? 0}%`}
           icon={Percent}
           color="yellow"
         />
         <StatCard
-          label="Avg Latency"
-          value={`${summary?.avg_latency_ms ?? 0}ms`}
-          icon={Clock}
+          label="Domains on Adlists"
+          value={summary?.total_gravity?.toLocaleString() ?? '0'}
+          icon={Shield}
           color="green"
         />
       </div>

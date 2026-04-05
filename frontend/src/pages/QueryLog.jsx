@@ -137,8 +137,29 @@ export default function QueryLog({ user, initialQueries = [] }) {
   const [paused, setPaused] = useState(false)
   const [selectedDomain, setSelectedDomain] = useState(null)
   const [filters, setFilters] = useState({ status: '', client: '', domain: '' })
+  const [acting, setActing] = useState(null) // { domain, type }
   const wsRef = useRef(null)
   const pausedRef = useRef(false)
+
+  const quickBlock = async (domain) => {
+    setActing({ domain, type: 'block' })
+    await fetch('/api/blocks/domains', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+      body: JSON.stringify({ domain, block_type: 'exact', layer: 'proxy', enabled: true }),
+    })
+    setActing(null)
+  }
+
+  const quickAllow = async (domain) => {
+    setActing({ domain, type: 'allow' })
+    await fetch('/api/blocks/allowlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+      body: JSON.stringify({ domain, allow_type: 'exact', enabled: true }),
+    })
+    setActing(null)
+  }
 
   useEffect(() => {
     pausedRef.current = paused
@@ -212,6 +233,7 @@ export default function QueryLog({ user, initialQueries = [] }) {
                   <th className="text-left px-4 py-3">Status</th>
                   <th className="text-left px-4 py-3">Rule</th>
                   <th className="text-right px-4 py-3">ms</th>
+                  <th className="text-center px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -229,6 +251,24 @@ export default function QueryLog({ user, initialQueries = [] }) {
                       <td className="px-4 py-2 text-slate-500 font-mono max-w-[120px] truncate">{e.matched_rule}</td>
                       <td className="px-4 py-2 text-right text-slate-500">
                         {e.response_time_ms != null ? e.response_time_ms.toFixed(1) : '—'}
+                      </td>
+                      <td className="px-4 py-2">
+                        <div className="flex items-center justify-center gap-2">
+                          <button 
+                            onClick={(ev) => { ev.stopPropagation(); quickBlock(e.domain); }}
+                            className="p-1 hover:text-red-400 text-slate-600 transition-colors"
+                            title="Quick Block"
+                          >
+                            <Shield size={14} className={acting?.domain === e.domain && acting?.type === 'block' ? 'animate-spin' : ''} />
+                          </button>
+                          <button 
+                            onClick={(ev) => { ev.stopPropagation(); quickAllow(e.domain); }}
+                            className="p-1 hover:text-green-400 text-slate-600 transition-colors"
+                            title="Quick Allow"
+                          >
+                            <CheckCircle size={14} className={acting?.domain === e.domain && acting?.type === 'allow' ? 'animate-spin' : ''} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )

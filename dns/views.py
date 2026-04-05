@@ -97,16 +97,23 @@ def _get_role(user):
 
 class StatsSummaryView(APIView):
     def get(self, request):
+        from dns.models import SystemSetting
         today = dj_timezone.now().date()
         qs = QueryLog.objects.filter(timestamp__date=today)
         total = qs.count()
         blocked = qs.filter(status__in=['blocked_pattern', 'blocked_domain', 'blocked_list']).count()
         avg_latency = qs.aggregate(a=Avg('response_time_ms'))['a'] or 0
+        
+        # Total domains on adlists (gravity)
+        grav = SystemSetting.objects.filter(key='gravity_unique_count').first()
+        total_gravity = int(grav.value) if grav else 0
+
         return Response({
             'queries_today': total,
             'blocked_today': blocked,
             'block_percent': round(blocked / total * 100, 1) if total else 0,
             'avg_latency_ms': round(avg_latency, 2),
+            'total_gravity': total_gravity,
         })
 
 
