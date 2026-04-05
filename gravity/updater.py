@@ -106,12 +106,22 @@ async def run_gravity_update():
                 await sync_to_async(lambda: setattr(adlist, 'last_error', error_msg) or adlist.save(update_fields=['last_error']))()
                 await broadcast(f"  ✗ {adlist.name}: {error_msg}", level='error')
 
-        # Reload matcher cache
+        # 2. Calculate and store global uniqueness
+        from blocks.models import GravityDomain
+        from dns.models import SystemSetting
+        
+        all_unique_count = await sync_to_async(GravityDomain.objects.values('domain').distinct().count)()
+        await sync_to_async(SystemSetting.objects.update_or_create)(
+            key='gravity_unique_count',
+            defaults={'value': str(all_unique_count), 'description': 'Total unique domains in gravity cache'}
+        )
+
+        # 3. Reload matcher cache
         from dns_proxy.matcher import get_matcher
         matcher = get_matcher()
         await sync_to_async(matcher.reload)()
         await broadcast(
-            f"Gravity update complete. {total_domains:,} total domains loaded. Proxy cache reloaded.",
+            f"Gravity update complete. {total_domains:,} total fetched, {all_unique_count:,} unique domains loaded. Proxy cache reloaded.",
             level='success'
         )
 

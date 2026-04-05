@@ -7,7 +7,7 @@ function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
 }
 
-function GravityModal({ onClose }) {
+function GravityModal({ onClose, onComplete }) {
   const [lines, setLines] = useState([])
   const [done, setDone] = useState(false)
   const bottomRef = useRef(null)
@@ -20,7 +20,13 @@ function GravityModal({ onClose }) {
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data)
       setLines(l => [...l, data])
-      if (data.level === 'success' && data.message?.includes('complete')) setDone(true)
+      if (data.level === 'success' && data.message?.includes('complete')) {
+        setDone(true)
+        if (onComplete) {
+           // Refetch all lists to get new counts and the new uniqueCount
+           fetch('/api/lists').then(res => res.json()).then(data => onComplete(data))
+        }
+      }
     }
     // Trigger update
     fetch('/api/lists/gravity', {
@@ -69,8 +75,9 @@ function GravityModal({ onClose }) {
 
 GravityModal.propTypes = { onClose: PropTypes.func }
 
-export default function Lists({ user, lists: initial = [] }) {
+export default function Lists({ user, lists: initial = [], uniqueCount: initialUnique = 0 }) {
   const [lists, setLists] = useState(initial)
+  const [uniqueCount, setUniqueCount] = useState(initialUnique)
   const [showGravity, setShowGravity] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ url: '', name: '', comment: '' })
@@ -105,14 +112,14 @@ export default function Lists({ user, lists: initial = [] }) {
     }
   }
 
-  const total = lists.reduce((s, l) => s + (l.domain_count || 0), 0)
+  // No longer needed: const total = lists.reduce((s, l) => s + (l.domain_count || 0), 0)
 
   return (
     <Layout user={user} currentPath="/lists" title="Adlists">
       <div className="flex items-center gap-3 mb-6 flex-wrap">
         <div>
           <h2 className="text-xl font-bold text-white">Adlists</h2>
-          <p className="text-sm text-slate-500">{lists.length} lists · {total.toLocaleString()} total domains</p>
+          <p className="text-sm text-slate-500">{lists.length} lists · {uniqueCount.toLocaleString()} unique domains</p>
         </div>
         <div className="ml-auto flex gap-2">
           {isAdmin && <button onClick={() => setShowGravity(true)} className="btn-primary">
@@ -191,7 +198,13 @@ export default function Lists({ user, lists: initial = [] }) {
         {!lists.length && <div className="text-center py-12 text-slate-600">No adlists configured. Add a blocklist URL to get started.</div>}
       </div>
 
-      {showGravity && <GravityModal onClose={() => setShowGravity(false)} />}
+      {showGravity && <GravityModal 
+        onClose={() => setShowGravity(false)} 
+        onComplete={(data) => {
+          setLists(data.lists)
+          if (data.uniqueCount !== undefined) setUniqueCount(data.uniqueCount)
+        }}
+      />}
     </Layout>
   )
 }

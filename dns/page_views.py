@@ -149,7 +149,12 @@ def _allowlist_props(request):
 
 def _lists_props(request):
     from dns.serializers import AdlistSerializer
-    return {'lists': AdlistSerializer(Adlist.objects.all(), many=True).data}
+    from dns.models import SystemSetting
+    unique_count = SystemSetting.objects.filter(key='gravity_unique_count').first()
+    return {
+        'lists': AdlistSerializer(Adlist.objects.all(), many=True).data,
+        'uniqueCount': int(unique_count.value) if unique_count else 0
+    }
 
 
 def _safesearch_props(request):
