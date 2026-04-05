@@ -174,6 +174,18 @@ export default function Documentation({ user: currentUser }) {
                     <td className="py-4 pr-4"><code>python manage.py run_ai_worker</code></td>
                     <td className="py-4 text-purple-400">Starts the AI Behavioral Profiling and Quarantining engine.</td>
                   </tr>
+                  <tr>
+                    <td className="py-4 pr-4"><code>python manage.py seed_data --queries 100</code></td>
+                    <td className="py-4 text-brand-400">Seeds the database with <strong>N</strong> realistic test queries for diagnostic purposes. Includes varied DNS types, DNSSEC statuses, cache hits, and blocked origins.</td>
+                  </tr>
+                  <tr>
+                    <td className="py-4 pr-4"><code>python manage.py seed_data --clear</code></td>
+                    <td className="py-4 text-red-400">Permanently deletes <strong>all</strong> query log entries. Use to reset the database to a clean state during testing.</td>
+                  </tr>
+                  <tr>
+                    <td className="py-4 pr-4"><code>python manage.py seed_data --clear --queries 50</code></td>
+                    <td className="py-4 text-yellow-400">Combines clear and seed in one step: wipes all existing logs and immediately seeds 50 fresh test entries.</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
