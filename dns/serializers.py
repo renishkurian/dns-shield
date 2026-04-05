@@ -3,8 +3,8 @@ All REST API serializers for DNS Shield.
 """
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from dns.models import QueryLog, SafeSearch, SystemSetting, Client
-from blocks.models import BlockedDomain, Pattern, Adlist, GravityDomain, AllowedDomain
+from dns.models import QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer
+from blocks.models import BlockedDomain, Pattern, Adlist, GravityDomain, AllowedDomain, BlockGroup, AppCategory, AppControl
 from users.models import UserProfile
 
 
@@ -25,6 +25,14 @@ class QueryLogSerializer(serializers.ModelSerializer):
                   'matched_rule', 'response_time_ms', 'resolved_ip', 'query_type']
 
 
+# ─── Block Group ─────────────────────────────────────────────────────────────
+
+class BlockGroupSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BlockGroup
+        fields = ['id', 'name', 'description', 'created_at']
+
+
 # ─── Blocks ──────────────────────────────────────────────────────────────────
 
 class BlockedDomainSerializer(serializers.ModelSerializer):
@@ -33,7 +41,7 @@ class BlockedDomainSerializer(serializers.ModelSerializer):
     class Meta:
         model = BlockedDomain
         fields = ['id', 'domain', 'block_type', 'layer', 'enabled', 'comment',
-                  'created_at', 'created_by', 'created_by_username', 'hit_count', 'last_hit']
+                  'created_at', 'created_by', 'created_by_username', 'hit_count', 'last_hit', 'group']
         read_only_fields = ['created_at', 'created_by', 'hit_count', 'last_hit']
 
     def get_created_by_username(self, obj):
@@ -46,7 +54,7 @@ class PatternSerializer(serializers.ModelSerializer):
     class Meta:
         model = Pattern
         fields = ['id', 'name', 'pattern', 'pattern_type', 'enabled',
-                  'comment', 'hit_count', 'created_by', 'created_by_username']
+                  'comment', 'hit_count', 'created_by', 'created_by_username', 'group']
         read_only_fields = ['hit_count', 'created_by']
 
     def get_created_by_username(self, obj):
@@ -56,7 +64,7 @@ class PatternSerializer(serializers.ModelSerializer):
 class AllowedDomainSerializer(serializers.ModelSerializer):
     class Meta:
         model = AllowedDomain
-        fields = ['id', 'domain', 'allow_type', 'enabled', 'comment', 'created_by']
+        fields = ['id', 'domain', 'allow_type', 'enabled', 'comment', 'created_by', 'group']
         read_only_fields = ['created_by']
 
 
@@ -66,7 +74,7 @@ class AdlistSerializer(serializers.ModelSerializer):
     class Meta:
         model = Adlist
         fields = ['id', 'url', 'name', 'enabled', 'domain_count',
-                  'last_updated', 'last_error', 'comment', 'created_by']
+                  'last_updated', 'last_error', 'comment', 'created_by', 'group']
         read_only_fields = ['domain_count', 'last_updated', 'last_error', 'created_by']
 
 
@@ -91,7 +99,8 @@ class SystemSettingSerializer(serializers.ModelSerializer):
 class ClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Client
-        fields = ['id', 'ip', 'name', 'group', 'comment']
+        fields = ['id', 'ip', 'mac', 'name', 'hostname', 'user', 'group', 'vendor', 'os_hint', 'last_seen', 'comment']
+        read_only_fields = ['last_seen']
 
 
 # ─── Users ───────────────────────────────────────────────────────────────────
@@ -138,3 +147,37 @@ class UserSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         return instance
+# ─── App Firewall ────────────────────────────────────────────────────────────
+
+class AppCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AppCategory
+        fields = ['id', 'name', 'domains', 'icon']
+
+
+class AppControlSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    group_name = serializers.CharField(source='group.name', read_only=True)
+
+    class Meta:
+        model = AppControl
+        fields = ['id', 'category', 'category_name', 'group', 'group_name', 'enabled']
+        validators = []  # Bypass unique_together DRF check to allow toggling
+
+
+# ─── VPN ─────────────────────────────────────────────────────────────────────
+
+class VPNServerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VPNServer
+        fields = '__all__'
+        read_only_fields = ['created_at']
+
+
+class VPNPeerSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='user.username', read_only=True)
+
+    class Meta:
+        model = VPNPeer
+        fields = ['id', 'name', 'user', 'username', 'public_key', 'allowed_ips', 'last_handshake', 'enabled', 'created_at']
+        read_only_fields = ['created_at', 'last_handshake']

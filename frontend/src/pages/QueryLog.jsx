@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
-import { Pause, Play, Download, Filter, X, ChevronRight, Shield, CheckCircle } from 'lucide-react'
+import { Pause, Play, Download, Filter, X, ChevronRight, Shield, CheckCircle, Sparkles } from 'lucide-react'
 
 const STATUS_LABELS = {
   allowed:         { label: 'Allowed',        cls: 'badge-green' },
@@ -18,9 +18,12 @@ function getCsrf() {
 function QuickActionPanel({ domain, onClose }) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
+  const [aiExplanation, setAiExplanation] = useState(null)
+  const [askingAi, setAskingAi] = useState(false)
 
   useEffect(() => {
     setResult(null)
+    setAiExplanation(null)
     if (!domain) return
     fetch('/api/blocks/domains/test', {
       method: 'POST',
@@ -51,6 +54,21 @@ function QuickActionPanel({ domain, onClose }) {
     })
     setLoading(false)
     onClose()
+  }
+
+  const askAi = async () => {
+    setAskingAi(true)
+    try {
+      const res = await fetch(`/api/ai/explain?domain=${encodeURIComponent(domain)}`)
+      const data = await res.json()
+      if (res.ok) {
+        setAiExplanation(data.explanation)
+      } else {
+        setAiExplanation(`Error: ${data.error}`)
+      }
+    } finally {
+      setAskingAi(false)
+    }
   }
 
   return (
@@ -84,9 +102,29 @@ function QuickActionPanel({ domain, onClose }) {
         <button onClick={blockDomain} disabled={loading} className="btn-danger flex-1 justify-center text-xs">
           <Shield size={12} /> Block
         </button>
-        <button onClick={allowDomain} disabled={loading} className="btn-success flex-1 justify-center text-xs">
+        <button onClick={allowDomain} disabled={loading} className="btn-success flex-1 justify-center text-xs py-1.5">
           <CheckCircle size={12} /> Allow
         </button>
+      </div>
+
+      <div className="mt-4 border-t border-slate-700/50 pt-4">
+        {!aiExplanation ? (
+          <button 
+            onClick={askAi} 
+            disabled={askingAi} 
+            className="w-full flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg border border-purple-500/30 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 disabled:opacity-50 transition-colors"
+          >
+            <Sparkles size={14} className={askingAi ? 'animate-pulse' : ''} />
+            {askingAi ? 'Analyzing...' : 'Ask AI'}
+          </button>
+        ) : (
+          <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg text-xs leading-relaxed text-slate-300">
+            <div className="flex items-center gap-2 font-bold text-purple-400 mb-2">
+              <Sparkles size={12} /> AI Analysis
+            </div>
+            {aiExplanation}
+          </div>
+        )}
       </div>
     </div>
   )

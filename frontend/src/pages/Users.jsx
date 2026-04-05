@@ -14,6 +14,7 @@ function UserModal({ user: editUser, onClose, onSave }) {
     first_name: editUser?.first_name || '',
     last_name: editUser?.last_name || '',
     role: editUser?.role || 'viewer',
+    group: editUser?.group || '',
     password: '',
     is_active: editUser?.is_active ?? true,
   })
@@ -79,13 +80,23 @@ function UserModal({ user: editUser, onClose, onSave }) {
                 <option value="viewer">Viewer</option>
               </select>
             </div>
-            <div className="flex items-end pb-2">
-              <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer">
-                <input type="checkbox" checked={form.is_active}
-                  onChange={e => setForm(f => ({...f, is_active: e.target.checked}))} />
-                Active account
-              </label>
+            <div>
+              <label className="label">Block Group</label>
+              <select className="input text-xs font-medium text-brand-400" value={form.group}
+                onChange={e => setForm(f => ({...f, group: e.target.value}))}>
+                <option value="">Global (None)</option>
+                {window.Inertia.page.props.groups?.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
             </div>
+          </div>
+          <div className="flex items-end pb-2">
+            <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer">
+              <input type="checkbox" checked={form.is_active}
+                onChange={e => setForm(f => ({...f, is_active: e.target.checked}))} />
+              Active account
+            </label>
           </div>
         </div>
         <div className="flex gap-2 mt-5">
@@ -164,6 +175,11 @@ export default function Users({ user: currentUser, users: initial = [] }) {
                   <span className={u.role === 'admin' ? 'badge-blue' : 'badge-gray'}>
                     {u.role === 'admin' ? <><Shield size={10} /> Admin</> : <><Eye size={10} /> Viewer</>}
                   </span>
+                  {u.group_name && (
+                    <div className="text-[10px] text-brand-400 font-bold mt-1 uppercase tracking-tighter">
+                       Group: {u.group_name}
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-slate-500 text-xs">
                   {u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}

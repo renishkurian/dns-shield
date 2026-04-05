@@ -1,5 +1,8 @@
-www-data ALL=(ALL) NOPASSWD: /usr/sbin/unbound-checkconf
-www-data ALL=(ALL) NOPASSWD: /bin/systemctl reload unbound
-www-data ALL=(ALL) NOPASSWD: /bin/systemctl restart unbound
-www-data ALL=(ALL) NOPASSWD: /sbin/iptables
-www-data ALL=(ALL) NOPASSWD: /usr/sbin/netfilter-persistent
+www-data ALL=(ALL) NOPASSWD: /usr/bin/python3 /home/nicky/work/my-hole/manage.py run_proxy *
+www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart unbound
+www-data ALL=(ALL) NOPASSWD: /usr/sbin/iptables *
+www-data ALL=(ALL) NOPASSWD: /usr/bin/wg *
+www-data ALL=(ALL) NOPASSWD: /usr/bin/wg-quick *
+www-data ALL=(ALL) NOPASSWD: /usr/bin/nmap *
+www-data ALL=(ALL) NOPASSWD: /usr/bin/mv /tmp/*.conf /etc/wireguard/*.conf
+www-data ALL=(ALL) NOPASSWD: /usr/bin/chmod 600 /etc/wireguard/*.conf

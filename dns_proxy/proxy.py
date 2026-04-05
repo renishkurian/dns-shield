@@ -26,13 +26,16 @@ class DNSShieldResolver(BaseResolver):
         qtype = dnslib.QTYPE[request.q.qtype]
         client_ip = handler.client_address[0]
 
+        # 0. Resolve Identity
+        group_id = _resolve_identity(client_ip)
+
         def nxdomain():
             reply = request.reply()
             reply.header.rcode = dnslib.RCODE.NXDOMAIN
             return reply
 
         # 1. Allowlist — always forward
-        if self.matcher.is_allowed(domain):
+        if self.matcher.is_allowed(domain, group_id=group_id):
             reply = forwarder.forward(request, self.upstream_host, self.upstream_port)
             elapsed = (time.monotonic() - start) * 1000
             resolved_ip = _extract_ip(reply)
@@ -42,7 +45,7 @@ class DNSShieldResolver(BaseResolver):
             return reply
 
         # 2. Pattern match
-        pattern_match = self.matcher.match_pattern(domain)
+        pattern_match = self.matcher.match_pattern(domain, group_id=group_id)
         if pattern_match:
             pid, pname = pattern_match
             elapsed = (time.monotonic() - start) * 1000
@@ -53,7 +56,7 @@ class DNSShieldResolver(BaseResolver):
             return nxdomain()
 
         # 3. Domain blocklist
-        domain_match = self.matcher.match_domain(domain)
+        domain_match = self.matcher.match_domain(domain, group_id=group_id)
         if domain_match:
             elapsed = (time.monotonic() - start) * 1000
             dns_logger.log_query(domain, client_ip, 'blocked_domain', qtype,
@@ -70,6 +73,14 @@ class DNSShieldResolver(BaseResolver):
             _broadcast(domain, client_ip, 'blocked_list', qtype, '', elapsed)
             return nxdomain()
 
+        # 4.5 AI Heuristic (DGA)
+        if self.matcher.is_dga(domain):
+            elapsed = (time.monotonic() - start) * 1000
+            dns_logger.log_query(domain, client_ip, 'blocked_ai', qtype,
+                                 matched_rule='AI: High Entropy (DGA)', response_time_ms=elapsed)
+            _broadcast(domain, client_ip, 'blocked_ai', qtype, 'AI: High Entropy (DGA)', elapsed)
+            return nxdomain()
+
         # 5. Forward to upstream
         reply = forwarder.forward(request, self.upstream_host, self.upstream_port)
         elapsed = (time.monotonic() - start) * 1000
@@ -79,6 +90,22 @@ class DNSShieldResolver(BaseResolver):
                              response_time_ms=elapsed, resolved_ip=resolved_ip)
         _broadcast(domain, client_ip, status, qtype, '', elapsed, resolved_ip)
         return reply
+
+
+
+def _resolve_identity(client_ip: str) -> int | None:
+    """Map client IP to a group ID via UserProfile."""
+    # Note: In production, this should be cached in Redis/memory
+    try:
+        from dns.models import Client
+        from users.models import UserProfile
+        client = Client.objects.filter(ip=client_ip).first()
+        if client and client.user:
+            return client.user.profile.group_id
+        # Fallback to direct UserProfile check if it's a fixed IP bypass
+        return None
+    except Exception:
+        return None
 
 
 def _extract_ip(reply: dnslib.DNSRecord) -> str | None:

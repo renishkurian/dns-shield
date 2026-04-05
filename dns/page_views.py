@@ -164,7 +164,44 @@ def _clients_props(request):
 
 def _users_props(request):
     from dns.serializers import UserSerializer
-    return {'users': UserSerializer(User.objects.select_related('profile').all(), many=True).data}
+    from blocks.models import BlockGroup
+    from dns.serializers import BlockGroupSerializer
+    return {
+        'users': UserSerializer(User.objects.select_related('profile').all(), many=True).data,
+        'groups': BlockGroupSerializer(BlockGroup.objects.all(), many=True).data
+    }
+
+
+def _block_groups_props(request):
+    from blocks.models import BlockGroup
+    from dns.serializers import BlockGroupSerializer
+    return {'groups': BlockGroupSerializer(BlockGroup.objects.all(), many=True).data}
+
+
+def _vpn_props(request):
+    from dns.models import VPNServer, VPNPeer
+    from dns.serializers import VPNServerSerializer, VPNPeerSerializer
+    server = VPNServer.objects.all().first()
+    peers = VPNPeer.objects.all()
+    return {
+        'server': VPNServerSerializer(server).data if server else None,
+        'peers': VPNPeerSerializer(peers, many=True).data,
+    }
+
+
+def _app_firewall_props(request):
+    from blocks.models import AppCategory, AppControl, BlockGroup
+    from dns.serializers import AppCategorySerializer, AppControlSerializer, BlockGroupSerializer
+    return {
+        'categories': AppCategorySerializer(AppCategory.objects.all(), many=True).data,
+        'controls': AppControlSerializer(AppControl.objects.all(), many=True).data,
+        'groups': BlockGroupSerializer(BlockGroup.objects.all(), many=True).data
+    }
+
+
+def _network_map_props(request):
+    from dns.serializers import ClientSerializer
+    return {'clients': ClientSerializer(Client.objects.all(), many=True).data}
 
 
 # ─── Wire up all page views ───────────────────────────────────────────────────
@@ -179,5 +216,15 @@ settings_dns_view = inertia_page('settings/DNS')(lambda r: None)
 settings_network_view = inertia_page('settings/Network')(lambda r: None)
 settings_doh_view = inertia_page('settings/DoH')(lambda r: None)
 settings_backup_view = inertia_page('settings/Backup')(lambda r: None)
+settings_ai_view = inertia_page('settings/AI')(lambda r: None)
 users_view = inertia_page('Users', _users_props, admin_only=True)(lambda r: None)
 profile_view = inertia_page('Profile')(lambda r: None)
+
+# v2.0 Pages
+block_groups_view = inertia_page('blocks/Groups', _block_groups_props, admin_only=True)(lambda r: None)
+vpn_view = inertia_page('VPN', _vpn_props, admin_only=True)(lambda r: None)
+app_firewall_view = inertia_page('blocks/AppFirewall', _app_firewall_props)(lambda r: None)
+network_map_view = inertia_page('NetworkMap', _network_map_props)(lambda r: None)
+
+# Docs
+documentation_view = inertia_page('Documentation')(lambda r: None)

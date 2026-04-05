@@ -29,13 +29,34 @@ export default function DNSSettings({ user, settings: initial = {} }) {
     setReloading(false)
   }
 
+  const detectUnbound = async () => {
+    const res = await fetch('/api/system/unbound/detect')
+    const data = await res.json()
+    if (data.installed) {
+      setSettings(s => ({
+        ...s,
+        upstream_dns: data.recommendation.host,
+        upstream_port: data.recommendation.port
+      }))
+    } else {
+      alert("Unbound service not found on this system.")
+    }
+  }
+
   const fields = [
-    { key: 'upstream_dns', label: 'Upstream DNS IP', placeholder: '127.0.0.1', desc: 'Unbound resolver IP' },
+    { 
+      key: 'upstream_dns', 
+      label: 'Upstream DNS IP', 
+      placeholder: '127.0.0.1', 
+      desc: 'Unbound resolver IP',
+      action: { label: 'Auto-detect', onClick: detectUnbound, icon: Globe }
+    },
     { key: 'upstream_port', label: 'Upstream DNS Port', placeholder: '5335', desc: 'Unbound port' },
     { key: 'proxy_host', label: 'Proxy Bind Host', placeholder: '0.0.0.0', desc: 'Interface to bind DNS proxy' },
     { key: 'proxy_port', label: 'Proxy Port', placeholder: '53', desc: 'DNS proxy port (53 is standard)' },
     { key: 'log_retention_days', label: 'Log Retention (days)', placeholder: '30', desc: 'Auto-delete query logs after N days' },
   ]
+
 
   return (
     <Layout user={user} currentPath="/settings/dns" title="DNS Settings">
@@ -46,7 +67,17 @@ export default function DNSSettings({ user, settings: initial = {} }) {
           <div className="space-y-4">
             {fields.map(f => (
               <div key={f.key}>
-                <label className="label">{f.label}</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="label mb-0">{f.label}</label>
+                  {f.action && isAdmin && (
+                    <button 
+                      onClick={f.action.onClick}
+                      className="text-[10px] flex items-center gap-1 font-bold text-brand-400 hover:text-brand-300 transition-colors bg-brand-500/10 px-2 py-0.5 rounded"
+                    >
+                      <f.action.icon size={10} /> {f.action.label}
+                    </button>
+                  )}
+                </div>
                 <input className="input text-xs font-mono" placeholder={f.placeholder}
                   value={settings[f.key] || ''}
                   onChange={e => setSettings(s => ({...s, [f.key]: e.target.value}))}
@@ -54,6 +85,7 @@ export default function DNSSettings({ user, settings: initial = {} }) {
                 <p className="text-xs text-slate-600 mt-1">{f.desc}</p>
               </div>
             ))}
+
           </div>
         </div>
 

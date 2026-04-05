@@ -11,6 +11,7 @@ class QueryLog(models.Model):
         ('blocked_pattern', 'Blocked by pattern'),
         ('blocked_domain', 'Blocked by domain rule'),
         ('blocked_list', 'Blocked by blocklist'),
+        ('blocked_ai', 'Blocked by AI heuristic'),
         ('nxdomain', 'NXDOMAIN from upstream'),
     ], max_length=20)
     matched_rule = models.CharField(max_length=255, blank=True)
@@ -53,9 +54,42 @@ class SystemSetting(models.Model):
 
 class Client(models.Model):
     ip = models.GenericIPAddressField(unique=True)
+    mac = models.CharField(max_length=17, blank=True, null=True, db_index=True)
     name = models.CharField(max_length=100, blank=True)
-    group = models.CharField(max_length=100, blank=True)
+    hostname = models.CharField(max_length=255, blank=True)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='clients')
+    group = models.ForeignKey('blocks.BlockGroup', on_delete=models.SET_NULL, null=True, blank=True, related_name='clients')
+    vendor = models.CharField(max_length=100, blank=True)
+    os_hint = models.CharField(max_length=100, blank=True)
+    last_seen = models.DateTimeField(null=True, blank=True)
     comment = models.TextField(blank=True)
 
     def __str__(self):
-        return self.name or self.ip
+        return self.name or self.hostname or self.ip
+
+
+class VPNServer(models.Model):
+    name = models.CharField(max_length=100, default='wg0')
+    private_key = models.CharField(max_length=100) # Should be encrypted in production
+    public_key = models.CharField(max_length=100)
+    listen_port = models.IntegerField(default=51820)
+    address = models.CharField(max_length=50, default='10.0.0.1/24')
+    enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
+class VPNPeer(models.Model):
+    name = models.CharField(max_length=100)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='vpn_peers')
+    private_key = models.CharField(max_length=100, blank=True)
+    public_key = models.CharField(max_length=100)
+    allowed_ips = models.CharField(max_length=100, default='10.0.0.2/32')
+    last_handshake = models.DateTimeField(null=True, blank=True)
+    enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.user.username})"

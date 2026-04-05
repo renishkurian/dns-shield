@@ -53,14 +53,37 @@ urlpatterns = [
     path('network/iptables', views.NetworkIPTablesView.as_view()),
     path('network/iptables/apply', views.NetworkIPTablesApplyView.as_view()),
     path('network/iptables/save', views.NetworkIPTablesSaveView.as_view()),
+    path('network/scan', views.NetworkScanView.as_view()),
 
     # Users (admin only)
     path('users', views.UserListView.as_view()),
     path('users/<int:pk>', views.UserDetailView.as_view()),
     path('users/<int:pk>/force-logout', views.UserForceLogoutView.as_view()),
 
+    # Block Groups
+    path('blocks/groups', views.BlockGroupListView.as_view()),
+    path('blocks/groups/<int:pk>', views.BlockGroupDetailView.as_view()),
+
+    # App Firewall
+    path('blocks/apps/categories', views.AppCategoryListView.as_view()),
+    path('blocks/apps/categories/<int:pk>', views.AppCategoryDetailView.as_view()),
+    path('blocks/apps/controls', views.AppControlView.as_view()),
+
+    # VPN (Wireguard)
+    path('vpn/server', views.VPNServerView.as_view()),
+    path('vpn/peers', views.VPNPeerView.as_view()),
+    path('vpn/peers/<int:pk>', views.VPNPeerDetailView.as_view()),
+    path('vpn/peers/<int:pk>/config', views.VPNConfigView.as_view()),
+    path('vpn/sync', views.VPNSyncView.as_view()),
+    path('vpn/status', views.VPNStatusView.as_view()),
+
+    # AI Integration
+    path('ai/explain', views.AIExplainView.as_view()),
+    path('ai/generate-app', views.AIGenerateAppView.as_view()),
+
     # System
     path('system/status', views.SystemStatusView.as_view()),
     path('system/reload-proxy', views.SystemReloadProxyView.as_view()),
+    path('system/unbound/detect', views.UnboundDetectView.as_view()),
     path('system/backup', views.SystemBackupView.as_view()),
 ]

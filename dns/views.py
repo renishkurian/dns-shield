@@ -20,14 +20,16 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from dns.models import QueryLog, SafeSearch, SystemSetting, Client
+from dns.models import QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer
 from dns.permissions import IsAdminRole
 from dns.serializers import (
     LoginSerializer, QueryLogSerializer, BlockedDomainSerializer,
     PatternSerializer, AllowedDomainSerializer, AdlistSerializer,
-    SafeSearchSerializer, SystemSettingSerializer, ClientSerializer, UserSerializer
+    SafeSearchSerializer, SystemSettingSerializer, ClientSerializer, UserSerializer,
+    BlockGroupSerializer, VPNServerSerializer, VPNPeerSerializer,
+    AppCategorySerializer, AppControlSerializer
 )
-from blocks.models import BlockedDomain, Pattern, Adlist, GravityDomain, AllowedDomain
+from blocks.models import BlockedDomain, Pattern, Adlist, GravityDomain, AllowedDomain, BlockGroup, AppCategory, AppControl
 from users.models import UserProfile
 
 
@@ -510,6 +512,122 @@ class SettingsView(APIView):
         return Response({'ok': True})
 
 
+# ─── BLOCK GROUPS ─────────────────────────────────────────────────────────────
+
+class BlockGroupListView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        return Response(BlockGroupSerializer(BlockGroup.objects.all(), many=True).data)
+
+    def post(self, request):
+        ser = BlockGroupSerializer(data=request.data)
+        if ser.is_valid():
+            obj = ser.save()
+            return Response(BlockGroupSerializer(obj).data, status=201)
+        return Response(ser.errors, status=400)
+
+
+class BlockGroupDetailView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def delete(self, request, pk):
+        try:
+            BlockGroup.objects.get(pk=pk).delete()
+            return Response(status=204)
+        except BlockGroup.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+
+
+# ─── APP FIREWALL ─────────────────────────────────────────────────────────────
+
+class AppCategoryListView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        return Response(AppCategorySerializer(AppCategory.objects.all(), many=True).data)
+
+    def post(self, request):
+        ser = AppCategorySerializer(data=request.data)
+        if ser.is_valid():
+            obj = ser.save()
+            return Response(AppCategorySerializer(obj).data, status=201)
+        return Response(ser.errors, status=400)
+
+
+class AppCategoryDetailView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def delete(self, request, pk):
+        try:
+            category = AppCategory.objects.get(pk=pk)
+            category.delete()
+            return Response(status=204)
+        except AppCategory.DoesNotExist:
+            return Response(status=404)
+
+
+class AppControlView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        group_id = request.query_params.get('group')
+        qs = AppControl.objects.all()
+        if group_id:
+            qs = qs.filter(group_id=group_id)
+        return Response(AppControlSerializer(qs, many=True).data)
+
+    def post(self, request):
+        ser = AppControlSerializer(data=request.data)
+        if ser.is_valid():
+            # Check for existing record to toggle
+            obj, _ = AppControl.objects.update_or_create(
+                category=ser.validated_data['category'],
+                group=ser.validated_data['group'],
+                defaults={'enabled': ser.validated_data['enabled']}
+            )
+            _reload_matcher()
+            return Response(AppControlSerializer(obj).data)
+        return Response(ser.errors, status=400)
+
+
+# ─── SMART AI ─────────────────────────────────────────────────────────────────
+
+class AIGenerateAppView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        app_name = request.query_params.get('name')
+        if not app_name:
+            return Response({'error': 'name parameter required'}, status=400)
+            
+        from dns.ai_service import generate_app_domains
+        try:
+            domains = generate_app_domains(app_name)
+            return Response({'domains': domains})
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+
+
+class AIExplainView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        domain = request.query_params.get('domain')
+        if not domain:
+            return Response({'error': 'domain parameter required'}, status=400)
+            
+        system_prompt = "You are a network security analyst. Explain what this domain is used for concisely. Tell me if it's safe, tracking, or malicious."
+        user_prompt = f"Domain: {domain}"
+        
+        from dns.ai_service import ask_ai
+        try:
+            explanation = ask_ai(system_prompt, user_prompt)
+            return Response({'explanation': explanation})
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+
+
 # ─── NETWORK / IPTABLES ───────────────────────────────────────────────────────
 
 IPTABLES_RULES = {
@@ -637,6 +755,22 @@ class UserForceLogoutView(APIView):
         return Response({'ok': True})
 
 
+# ─── NETWORK DISCOVERY ────────────────────────────────────────────────────────
+
+class NetworkScanView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def post(self, request):
+        from dns.network_scanner import run_network_scan
+        import threading
+        
+        def run():
+            run_network_scan()
+            
+        threading.Thread(target=run, daemon=True).start()
+        return Response({'ok': True, 'message': 'Scan started in background.'})
+
+
 # ─── SYSTEM STATUS ────────────────────────────────────────────────────────────
 
 class SystemStatusView(APIView):
@@ -747,6 +881,119 @@ def _restore_backup(data, user):
 
     from dns_proxy.matcher import get_matcher
     get_matcher().reload()
+
+
+# ─── VPN ──────────────────────────────────────────────────────────────────────
+
+class VPNServerView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        server = VPNServer.objects.all().first()
+        if not server:
+            return Response({'error': 'No VPN server configured'}, status=404)
+        return Response(VPNServerSerializer(server).data)
+
+    def post(self, request):
+        from dns.vpn_manager import gen_keypair
+        priv, pub = gen_keypair()
+        obj, _ = VPNServer.objects.update_or_create(
+            name=request.data.get('name', 'wg0'),
+            defaults={
+                'private_key': priv,
+                'public_key': pub,
+                'listen_port': request.data.get('listen_port', 51820),
+                'address': request.data.get('address', '10.0.0.1/24'),
+            }
+        )
+        return Response(VPNServerSerializer(obj).data)
+
+
+class VPNPeerView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        return Response(VPNPeerSerializer(VPNPeer.objects.all(), many=True).data)
+
+    def post(self, request):
+        from dns.vpn_manager import gen_keypair
+        priv, pub = gen_keypair()
+        ser = VPNPeerSerializer(data=request.data)
+        if ser.is_valid():
+            obj = ser.save(private_key=priv, public_key=pub)
+            return Response(VPNPeerSerializer(obj).data, status=201)
+        return Response(ser.errors, status=400)
+
+
+class VPNPeerDetailView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def delete(self, request, pk):
+        try:
+            VPNPeer.objects.get(pk=pk).delete()
+            return Response(status=204)
+        except VPNPeer.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+
+
+class VPNConfigView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request, pk):
+        from dns.vpn_manager import generate_peer_config
+        try:
+            peer = VPNPeer.objects.get(pk=pk)
+            server = VPNServer.objects.all().first()
+            config = generate_peer_config(server, peer)
+            return Response({'config': config})
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
+
+
+class VPNSyncView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def post(self, request):
+        from dns.vpn_manager import sync_config
+        ok, msg = sync_config()
+        return Response({'ok': ok, 'message': msg})
+
+
+class VPNStatusView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        from dns.vpn_manager import get_status
+        status_data = get_status()
+        return Response(status_data)
+
+
+class UnboundDetectView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        import subprocess
+        try:
+            # Check if binary exists
+            which = subprocess.run(['which', 'unbound'], capture_output=True, text=True)
+            installed = which.returncode == 0
+            
+            # Check if active
+            status = "inactive"
+            if installed:
+                res = subprocess.run(['systemctl', 'is-active', 'unbound'], capture_output=True, text=True)
+                status = res.stdout.strip()
+            
+            return Response({
+                'installed': installed,
+                'status': status,
+                'recommendation': {
+                    'host': '127.0.0.1',
+                    'port': '5335'
+                }
+            })
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
 
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────

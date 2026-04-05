@@ -4,7 +4,7 @@ import { router } from '@inertiajs/react'
 import {
   LayoutDashboard, List, Shield, Filter, CheckCircle, Globe,
   Users, Settings, Search, Network, Download, LogOut,
-  ChevronLeft, ChevronRight, Wifi, User, Database, Menu
+  ChevronLeft, ChevronRight, Wifi, User, Database, Menu, BookOpen, Sparkles
 } from 'lucide-react'
 
 const navGroups = [
@@ -13,6 +13,7 @@ const navGroups = [
     items: [
       { label: 'Dashboard', href: '/', icon: LayoutDashboard },
       { label: 'Query Log', href: '/queries', icon: List },
+      { label: 'Network Map', href: '/network/map', icon: Network },
     ]
   },
   {
@@ -22,6 +23,7 @@ const navGroups = [
       { label: 'Patterns', href: '/blocks/patterns', icon: Filter },
       { label: 'Allowlist', href: '/blocks/allowlist', icon: CheckCircle },
       { label: 'Adlists', href: '/lists', icon: Database },
+      { label: 'App Firewall', href: '/blocks/apps', icon: Shield },
     ]
   },
   {
@@ -38,6 +40,13 @@ const navGroups = [
       { label: 'Network', href: '/settings/network', icon: Network },
       { label: 'DoH Setup', href: '/settings/doh', icon: Shield },
       { label: 'Backup', href: '/settings/backup', icon: Download },
+      { label: 'AI Integrations', href: '/settings/ai', icon: Sparkles },
+    ]
+  },
+  {
+    label: 'Help',
+    items: [
+      { label: 'Documentation', href: '/docs', icon: BookOpen },
     ]
   },
 ]
@@ -46,6 +55,8 @@ const adminGroup = {
   label: 'Administration',
   items: [
     { label: 'Users', href: '/users', icon: Users },
+    { label: 'Block Groups', href: '/blocks/groups', icon: User },
+    { label: 'VPN (Wireguard)', href: '/vpn', icon: Shield },
   ]
 }
 
@@ -105,7 +116,7 @@ export default function Sidebar({ currentPath, user }) {
           {!collapsed && (
             <div>
               <div className="font-bold text-white text-sm leading-tight">DNS Shield</div>
-              <div className="text-xs text-slate-500">v1.0</div>
+              <div className="text-xs text-slate-500">v2.0</div>
             </div>
           )}
           <button

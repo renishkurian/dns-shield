@@ -20,6 +20,14 @@ urlpatterns = [
     path('settings/network', page_views.settings_network_view, name='settings-network'),
     path('settings/doh', page_views.settings_doh_view, name='settings-doh'),
     path('settings/backup', page_views.settings_backup_view, name='settings-backup'),
+    path('settings/ai', page_views.settings_ai_view, name='settings-ai'),
     path('users', page_views.users_view, name='users'),
     path('profile', page_views.profile_view, name='profile'),
+
+    # v2.0
+    path('blocks/groups', page_views.block_groups_view, name='block-groups'),
+    path('vpn', page_views.vpn_view, name='vpn'),
+    path('blocks/apps', page_views.app_firewall_view, name='app-firewall'),
+    path('network/map', page_views.network_map_view, name='network-map'),
+    path('docs', page_views.documentation_view, name='docs'),
 ]
