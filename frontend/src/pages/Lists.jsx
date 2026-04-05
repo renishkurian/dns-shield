@@ -105,7 +105,8 @@ export default function Lists({ user, lists: initial = [], uniqueCount: initialU
       body: JSON.stringify(form),
     })
     if (res.ok) {
-      const data = await res.json()
+      const resp = await res.json()
+      const data = resp.lists || resp // Handle both array and object response
       setLists(l => [data, ...l])
       setShowAdd(false)
       setForm({ url: '', name: '', comment: '' })

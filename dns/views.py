@@ -384,7 +384,12 @@ class AdlistView(APIView):
         return [IsAdminRole()]
 
     def get(self, request):
-        return Response(AdlistSerializer(Adlist.objects.all(), many=True).data)
+        from dns.models import SystemSetting
+        uc = SystemSetting.objects.filter(key='gravity_unique_count').first()
+        return Response({
+            'lists': AdlistSerializer(Adlist.objects.all(), many=True).data,
+            'uniqueCount': int(uc.value) if uc else 0
+        })
 
     def post(self, request):
         ser = AdlistSerializer(data=request.data)
