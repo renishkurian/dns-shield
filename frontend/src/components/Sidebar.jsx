@@ -43,7 +43,7 @@ const navGroups = [
       { label: 'DoH Setup', href: '/settings/doh', icon: Shield },
       { label: 'Backup', href: '/settings/backup', icon: Download },
       { label: 'AI Integrations', href: '/settings/ai', icon: Sparkles },
-      { label: 'API Token', href: '/profile', icon: Key },
+      { label: 'API Token', href: '/settings/api-token', icon: Key },
     ]
   },
   {
