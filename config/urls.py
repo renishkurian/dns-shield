@@ -33,7 +33,16 @@ urlpatterns = [
 
     # Phase 21+
     path('tools', page_views.tools_view, name='tools'),
-    path('audit', page_views.audit_log_view, name='audit'),
+    path('settings/system-log', page_views.system_log_view, name='system-log'),
+        path('audit', page_views.audit_log_view, name='audit'),
     path('settings/health', page_views.system_health_view, name='system-health'),
     path('settings/api-token', page_views.api_token_view, name='api-token'),
+    
+    # Phase 22-29 Pages
+    path('clients/<int:pk>', page_views.client_detail_view, name='client-detail'),
+    path('schedules', page_views.schedules_view, name='schedules'),
+    path('settings/alerts', page_views.alerts_view, name='alerts'),
+    path('domains/detail', page_views.domain_detail_view, name='domain-detail'),
+    path('settings/threat-feeds', page_views.threat_feeds_view, name='threat-feeds'),
+    path('notifications', page_views.notifications_view, name='notifications'),
 ]

@@ -128,5 +128,7 @@ async def run_gravity_update():
     except Exception as exc:
         logger.exception(f"Gravity update failed: {exc}")
         await broadcast(f"Gravity update failed: {exc}", level='error')
+        from dns.alerts import notify_event
+        await notify_event('gravity_fail', f"Gravity update failed: {str(exc)}")
     finally:
         _gravity_running = False

@@ -74,12 +74,12 @@ function HourlyChart({ data }) {
       ctx.roundRect(x + 1, chartH - blockedH, barW - 2, blockedH, [2])
       ctx.fill()
 
-      // Hour label every 4 hours
-      if (i % 4 === 0) {
-        ctx.fillStyle = 'rgba(100, 116, 139, 0.8)'
+      // label every 4 hours or all for small datasets
+      if (i % 4 === 0 || data.length < 12) {
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.8)'
         ctx.font = '10px Inter, sans-serif'
         ctx.textAlign = 'center'
-        ctx.fillText(`${String(hour.hour).padStart(2, '0')}:00`, x + barW / 2, H - 6)
+        ctx.fillText(hour.label || `${hour.hour}:00`, x + barW / 2, H - 6)
       }
     })
 
@@ -214,25 +214,52 @@ function FrequencyTable({ title, data, color = 'blue' }) {
 FrequencyTable.propTypes = { title: PropTypes.string, data: PropTypes.array, color: PropTypes.string }
 
 // ─── Dashboard page ───────────────────────────────────────────────────────────
-export default function Dashboard({ user, summary, hourly, topDomains, topAllowedDomains, topClients, systemStatus }) {
+export default function Dashboard({ user, summary: initialSummary, hourly: initialHourly, topDomains: initialTop, topAllowedDomains: initialTopAllowed, topClients: initialTopClients, systemStatus }) {
   const [liveEntries, setLiveEntries] = useState([])
   const [queryTypes, setQueryTypes] = useState([])
   const [upstreamStats, setUpstreamStats] = useState([])
   const [wsConnected, setWsConnected] = useState(false)
+  
+  // Phase 26 State
+  const [range, setRange] = useState('24h')
+  const [stats, setStats] = useState({
+    summary: initialSummary,
+    hourly: initialHourly,
+    topDomains: initialTop,
+    topAllowedDomains: initialTopAllowed,
+    topClients: initialTopClients
+  })
 
-  const fetchStats = async () => {
+  const fetchStats = async (selectedRange = range) => {
     try {
-      const qRes = await fetch('/api/stats/query-types')
-      const qData = await qRes.json()
-      setQueryTypes(qData.map(d => ({ label: d.query_type, count: d.count })))
+      const r = selectedRange
+      const [sRes, hRes, tdRes, tadRes, tcRes, qtRes, usRes] = await Promise.all([
+        fetch(`/api/stats/summary?range=${r}`),
+        fetch(`/api/stats/hourly?range=${r}`),
+        fetch(`/api/stats/top-domains?range=${r}`),
+        fetch(`/api/stats/top-allowed-domains?range=${r}`),
+        fetch(`/api/stats/top-clients?range=${r}`),
+        fetch(`/api/stats/query-types?range=${r}`),
+        fetch(`/api/stats/upstream-servers?range=${r}`)
+      ])
 
-      const uRes = await fetch('/api/stats/upstream-servers')
-      const uData = await uRes.json()
-      setUpstreamStats(uData.map(d => {
-        let color = '#3b82f6' // Default blue for cache
-        if (d.label === 'Blocked') color = '#ef4444' // Red for blocked
-        else if (d.label === 'Cache') color = '#06b6d4' // Cyan for cache
-        else color = `hsl(calc(var(--brand-hue) + 120deg), 60%, 45%)` // Greenish for real upstreams
+      const [sData, hData, tdData, tadData, tcData, qtData, usData] = await Promise.all([
+        sRes.json(), hRes.json(), tdRes.json(), tadRes.json(), tcRes.json(), qtRes.json(), usRes.json()
+      ])
+
+      setStats({
+        summary: sData,
+        hourly: hData,
+        topDomains: tdData,
+        topAllowedDomains: tadData,
+        topClients: tcData
+      })
+
+      setQueryTypes(qtData.map(d => ({ label: d.query_type, count: d.count })))
+      setUpstreamStats(usData.map(d => {
+        let color = null 
+        if (d.label === 'Blocked') color = '#ef4444' 
+        else if (d.label === 'Cache') color = '#06b6d4' 
         return { label: d.label, count: d.count, color }
       }))
     } catch (e) {
@@ -241,106 +268,111 @@ export default function Dashboard({ user, summary, hourly, topDomains, topAllowe
   }
 
   useEffect(() => {
-    fetchStats()
+    fetchStats(range)
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
     const ws = new WebSocket(`${protocol}://${location.host}/ws/queries`)
     ws.onopen = () => setWsConnected(true)
-    ws.onclose = () => {
-      setWsConnected(false)
-      setTimeout(() => {/* reconnect handled by component remount */}, 3000)
-    }
+    ws.onclose = () => setWsConnected(false)
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data)
       setLiveEntries(prev => [data, ...prev].slice(0, 50))
     }
     return () => ws.close()
-  }, [])
+  }, [range])
 
   return (
     <Layout user={user} currentPath="/" title="Dashboard">
       {/* System status bar */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
         <div>
-          <h2 className="text-xl font-bold text-white">Overview</h2>
-          <p className="text-sm text-slate-500">Today's traffic at a glance</p>
+          <h2 className="text-xl font-bold text-white tracking-tight">Network Overview</h2>
+          <div className="flex items-center gap-2 mt-1">
+            <SystemStatus status={systemStatus} />
+          </div>
         </div>
-        <SystemStatus status={systemStatus} />
+        
+        <div className="flex items-center gap-1 p-1 bg-slate-900/50 border border-slate-800 rounded-xl">
+          {['24h', '7d', '30d', 'all'].map(r => (
+            <button
+              key={r}
+              onClick={() => setRange(r)}
+              className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+                range === r ? 'bg-brand-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
-          label="Queries Today"
-          value={summary?.queries_today?.toLocaleString() ?? '0'}
+          label={`Queries (${range})`}
+          value={stats.summary?.queries?.toLocaleString() ?? '0'}
           icon={Activity}
           color="brand"
         />
         <StatCard
-          label="Blocked Today"
-          value={summary?.blocked_today?.toLocaleString() ?? '0'}
+          label={`Blocked (${range})`}
+          value={stats.summary?.blocked?.toLocaleString() ?? '0'}
+          sub={`${stats.summary?.block_percent ?? 0}% blocked`}
           icon={Shield}
           color="red"
         />
         <StatCard
-          label="Block Rate Today"
-          value={`${summary?.block_percent ?? 0}%`}
-          icon={Percent}
+          label="Avg Latency"
+          value={`${stats.summary?.avg_latency_ms ?? 0}ms`}
+          icon={TrendingUp}
           color="yellow"
         />
         <StatCard
-          label="Domains on Adlists"
-          value={summary?.total_gravity?.toLocaleString() ?? '0'}
-          icon={Shield}
+          label="Total Gravity"
+          value={stats.summary?.total_gravity?.toLocaleString() ?? '0'}
+          sub="Domains in lists"
+          icon={Percent}
           color="green"
         />
       </div>
 
-      {/* Charts + tables row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        {/* Hourly chart */}
-        <div className="lg:col-span-2 card">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp size={16} className="text-brand-400" />
-            <h3 className="font-semibold text-white text-sm">Queries — last 24 hours</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <div className="lg:col-span-2 card flex flex-col">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="font-bold text-white text-sm flex items-center gap-2">
+              <Clock size={16} className="text-brand-400" />
+              Traffic Frequency
+            </h3>
+            <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Range: {range}</span>
           </div>
-          <HourlyChart data={hourly || []} />
-        </div>
-
-        {/* Top clients */}
-        <div className="card">
-          <h3 className="font-semibold text-white text-sm mb-4">Top Clients (24h)</h3>
-          <div className="space-y-2">
-            {(topClients || []).map((c, i) => (
-              <div key={i} className="flex items-center gap-2 text-sm">
-                <span className="text-slate-600 w-4 text-right shrink-0">{i + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-slate-300 truncate">{c.name || c.client_ip}</div>
-                  {c.name && <div className="text-xs text-slate-600 font-mono">{c.client_ip}</div>}
-                </div>
-                <span className="shrink-0 text-xs text-slate-500 tabular-nums">{c.count?.toLocaleString()}</span>
-              </div>
-            ))}
-            {!topClients?.length && <p className="text-slate-600 text-xs text-center py-4">No activity yet</p>}
+          <div className="flex-1 min-h-[160px]">
+            <HourlyChart data={stats.hourly} />
           </div>
         </div>
       </div>
 
-      {/* Top lists row (Pi-hole parity) */}
-      {/* Analytics Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         <div className="card">
-          <h3 className="font-semibold text-white text-sm mb-4">Query Types</h3>
-          <DoughnutChart data={queryTypes} size={150} />
+          <h3 className="font-bold text-white text-sm mb-6 flex items-center gap-2">
+            <PieChart size={16} className="text-brand-400" />
+            Query Types
+          </h3>
+          <DoughnutChart data={queryTypes} size={150} thickness={20} />
         </div>
+
         <div className="card">
-          <h3 className="font-semibold text-white text-sm mb-4">Upstream Servers</h3>
-          <DoughnutChart data={upstreamStats} size={150} />
+          <h3 className="font-bold text-white text-sm mb-6 flex items-center gap-2">
+            <PieChart size={16} className="text-purple-400" />
+            Upstream Servers
+          </h3>
+          <DoughnutChart data={upstreamStats} size={150} thickness={20} />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        <FrequencyTable title="Top Domains (Allowed)" data={topAllowedDomains} color="green" />
-        <FrequencyTable title="Top Blocked Domains" data={topDomains} color="red" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+        <FrequencyTable title="Top Blocked Domains" data={stats.topDomains} color="red" />
+        <FrequencyTable title="Top Allowed Domains" data={stats.topAllowedDomains} color="blue" />
+        <FrequencyTable title="Top Clients" data={stats.topClients.map(c => ({ domain: c.name || c.client_ip, count: c.count }))} color="green" />
       </div>
 
       {/* Live feed */}

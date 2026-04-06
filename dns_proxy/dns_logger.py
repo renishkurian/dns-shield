@@ -50,6 +50,21 @@ def _worker():
 def _flush(QueryLog, batch):
     try:
         QueryLog.objects.bulk_create(batch, batch_size=500, ignore_conflicts=True)
+        
+        # Phase 24: Check for malware/threat hits in the batch
+        from dns.alerts import notify_event
+        import asyncio
+        for entry in batch:
+            if entry.status == 'blocked_ai':
+                msg = f"Threat detected! Blocked {entry.domain} from {entry.client_ip} via AI Heuristics."
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(notify_event('malware_hit', msg, {'domain': entry.domain, 'client': entry.client_ip}))
+                    else:
+                        asyncio.run(notify_event('malware_hit', msg, {'domain': entry.domain, 'client': entry.client_ip}))
+                except Exception:
+                    pass
     except Exception as exc:
         logger.error(f"QueryLog flush error: {exc}")
 

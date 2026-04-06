@@ -28,7 +28,7 @@ INSTALLED_APPS = [
     'channels',
     'axes',
     # Local
-    'dns',
+    'dns.apps.DnsConfig',
     'blocks',
     'gravity',
     'users',

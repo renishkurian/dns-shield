@@ -110,4 +110,32 @@ urlpatterns = [
 
     # API Token
     path('auth/token', views.ApiTokenView.as_view()),
+
+    # Per-Client details (Phase 22)
+    path('clients/<int:pk>/history', views.ClientHistoryView.as_view()),
+    path('clients/<int:pk>/stats', views.ClientStatsView.as_view()),
+
+    # Scheduled rules (Phase 23)
+    path('schedules', views.ScheduledRuleListView.as_view(), name='schedule-list'),
+    path('schedules/<int:pk>', views.ScheduledRuleDetailView.as_view()),
+
+    # Alerts (Phase 24)
+    path('alerts/configs', views.AlertConfigListView.as_view()),
+    path('alerts/configs/<int:pk>', views.AlertConfigDetailView.as_view()),
+
+    # Global search (Phase 25)
+    path('system/global-search', views.GlobalSearchView.as_view()),
+
+    # Domain analytics (Phase 27)
+    path('domains/analytics', views.DomainAnalyticsView.as_view()),
+
+    # Threat feeds (Phase 28)
+    path('system/threat-feeds', views.ThreatFeedListView.as_view()),
+
+    # Notifications & Polish (Phase 29)
+    path('system/notifications', views.NotificationsView.as_view()),
+    path('system/dns-cache-flush', views.DnsCacheFlushView.as_view()),
+
+    # AI Auditing
+    path('ai/usage', views.AIUsageLogListView.as_view()),
 ]

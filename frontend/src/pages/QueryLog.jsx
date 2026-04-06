@@ -135,13 +135,21 @@ function QueryInspector({ entry, onClose }) {
         </div>
 
         {/* Action buttons */}
-        <div className="flex gap-2">
-          <button onClick={blockDomain} disabled={loading} className="btn-danger flex-1 justify-center text-xs py-1.5">
-            <Shield size={12} /> Block
-          </button>
-          <button onClick={allowDomain} disabled={loading} className="btn-success flex-1 justify-center text-xs py-1.5">
-            <CheckCircle size={12} /> Allow
-          </button>
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <button onClick={blockDomain} disabled={loading} className="btn-danger flex-1 justify-center text-xs py-1.5">
+              <Shield size={12} /> Block
+            </button>
+            <button onClick={allowDomain} disabled={loading} className="btn-success flex-1 justify-center text-xs py-1.5">
+              <CheckCircle size={12} /> Allow
+            </button>
+          </div>
+          <a 
+            href={`/domains/detail?domain=${domain}`}
+            className="btn-ghost justify-center text-xs py-1.5 border border-slate-700/50 hover:border-brand-500/50 hover:bg-brand-500/5 text-brand-400"
+          >
+            <Activity size={12} /> View Full Analytics
+          </a>
         </div>
 
         {/* AI Analysis section */}

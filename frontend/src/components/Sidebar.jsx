@@ -5,7 +5,7 @@ import {
   LayoutDashboard, List, Shield, Filter, CheckCircle, Globe,
   Users, Settings, Search, Network, Download, LogOut,
   ChevronLeft, ChevronRight, Wifi, User, Database, Menu, BookOpen, Sparkles,
-  Wrench, ClipboardList, Activity, Key
+  Wrench, ClipboardList, Activity, Key, ShieldAlert, Clock, Bell
 } from 'lucide-react'
 import ShieldControl from './ShieldControl'
 
@@ -25,6 +25,8 @@ const navGroups = [
       { label: 'Patterns', href: '/blocks/patterns', icon: Filter },
       { label: 'Allowlist', href: '/blocks/allowlist', icon: CheckCircle },
       { label: 'Adlists', href: '/lists', icon: Database },
+      { label: 'Threat Intel', href: '/settings/threat-feeds', icon: ShieldAlert },
+      { label: 'Schedules', href: '/blocks/schedules', icon: Clock },
       { label: 'App Firewall', href: '/blocks/apps', icon: Shield },
     ]
   },
@@ -39,9 +41,7 @@ const navGroups = [
     label: 'Settings',
     items: [
       { label: 'DNS Config', href: '/settings/dns', icon: Globe },
-      { label: 'Network', href: '/settings/network', icon: Network },
-      { label: 'DoH Setup', href: '/settings/doh', icon: Shield },
-      { label: 'Backup', href: '/settings/backup', icon: Download },
+      { label: 'Alerts', href: '/settings/alerts', icon: Bell },
       { label: 'AI Integrations', href: '/settings/ai', icon: Sparkles },
       { label: 'API Token', href: '/settings/api-token', icon: Key },
     ]
@@ -49,8 +49,7 @@ const navGroups = [
   {
     label: 'Tools',
     items: [
-      { label: 'Domain Search', href: '/tools', icon: Wrench },
-      { label: 'Audit Log', href: '/audit', icon: ClipboardList },
+      { label: 'Intelligence Log', href: '/settings/system-log', icon: ClipboardList },
       { label: 'System Health', href: '/settings/health', icon: Activity },
     ]
   },
@@ -121,13 +120,17 @@ export default function Sidebar({ currentPath, user }) {
       {/* Logo */}
       <div className="p-4 border-b border-slate-700/50">
         <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : ''}`}>
-          <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-blue-600 rounded-lg flex items-center justify-center shrink-0">
-            <Shield size={16} className="text-white" />
+          <div className="w-9 h-9 bg-slate-900 rounded-xl flex items-center justify-center shrink-0 border border-slate-800 overflow-hidden group/logo">
+            <img 
+               src="/static/dist/assets/logo.png" 
+               alt="DNS Shield" 
+               className="w-full h-full object-contain p-1.5 transition-transform duration-500 group-hover/logo:scale-110"
+            />
           </div>
           {!collapsed && (
             <div>
-              <div className="font-bold text-white text-sm leading-tight">DNS Shield</div>
-              <div className="text-xs text-slate-500">v2.0</div>
+              <div className="font-bold text-white text-sm leading-tight tracking-tight uppercase">DNS Shield</div>
+              <div className="text-[10px] text-brand-500 font-bold uppercase tracking-widest">v2.1 Premium</div>
             </div>
           )}
           <button

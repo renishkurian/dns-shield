@@ -91,6 +91,21 @@ def run_network_scan(subnet=None):
                     'last_seen': timezone.now()
                 }
             )
+            if created:
+                from dns.alerts import notify_event
+                import asyncio
+                msg = f"New device detected: {client.name or client.hostname or client.ip}"
+                # Since notify_event is async, and we're in a sync function
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        loop.create_task(notify_event('new_device', msg, {'client_id': client.id, 'ip': client.ip}))
+                    else:
+                        asyncio.run(notify_event('new_device', msg, {'client_id': client.id, 'ip': client.ip}))
+                except Exception:
+                    # Fallback for complex threading/event-loop issues
+                    pass
+            
             found_count += 1
 
         logger.info(f"Scan complete. Found {found_count} devices.")

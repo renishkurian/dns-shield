@@ -3,7 +3,10 @@ All REST API serializers for DNS Shield.
 """
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from dns.models import QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer
+from dns.models import (
+    QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer,
+    ScheduledRule, AlertConfig, SystemEvent, AIUsageLog
+)
 from blocks.models import BlockedDomain, Pattern, Adlist, GravityDomain, AllowedDomain, BlockGroup, AppCategory, AppControl
 from users.models import UserProfile
 
@@ -100,8 +103,31 @@ class SystemSettingSerializer(serializers.ModelSerializer):
 class ClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Client
-        fields = ['id', 'ip', 'mac', 'name', 'hostname', 'user', 'group', 'vendor', 'os_hint', 'last_seen', 'comment']
+        fields = ['id', 'ip', 'mac', 'name', 'hostname', 'user', 'group', 
+                  'vendor', 'os_hint', 'last_seen', 'nickname', 'device_type', 'icon', 'comment']
         read_only_fields = ['last_seen']
+
+
+# ─── Advanced Features ───────────────────────────────────────────────────────
+
+class ScheduledRuleSerializer(serializers.ModelSerializer):
+    group_name = serializers.CharField(source='group.name', read_only=True)
+
+    class Meta:
+        model = ScheduledRule
+        fields = '__all__'
+
+
+class AlertConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AlertConfig
+        fields = '__all__'
+
+
+class SystemEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SystemEvent
+        fields = '__all__'
 
 
 # ─── Users ───────────────────────────────────────────────────────────────────
@@ -182,3 +208,14 @@ class VPNPeerSerializer(serializers.ModelSerializer):
         model = VPNPeer
         fields = ['id', 'name', 'user', 'username', 'public_key', 'allowed_ips', 'last_handshake', 'enabled', 'created_at']
         read_only_fields = ['created_at', 'last_handshake']
+
+
+# ─── AI Auditing ─────────────────────────────────────────────────────────────
+
+class AIUsageLogSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='user.username', read_only=True)
+
+    class Meta:
+        model = AIUsageLog
+        fields = ['id', 'user', 'username', 'feature', 'query', 'prompt', 'response', 'tokens_estimate', 'timestamp']
+        read_only_fields = ['timestamp']

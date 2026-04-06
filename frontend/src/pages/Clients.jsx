@@ -91,16 +91,39 @@ export default function Clients({ user, clients: initial = [] }) {
           </thead>
           <tbody>
             {clients.map(c => (
-              <tr key={c.id} className="border-b border-slate-800/50 hover:bg-slate-700/20">
-                <td className="px-4 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <Wifi size={12} className="text-slate-500" />
-                    <span className="font-mono text-xs text-brand-300">{c.ip}</span>
+              <tr 
+                key={c.id} 
+                onClick={() => window.location.href = `/clients/${c.id}`}
+                className="border-b border-slate-800/50 hover:bg-slate-700/20 cursor-pointer group transition-colors"
+              >
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-slate-800/50 flex items-center justify-center text-slate-500 group-hover:text-brand-400 transition-colors shrink-0">
+                      <Wifi size={14} />
+                    </div>
+                    <div>
+                      <div className="font-mono text-xs text-brand-300 font-bold">{c.ip}</div>
+                      {c.hostname && <div className="text-[10px] text-slate-500 truncate max-w-[120px]">{c.hostname}</div>}
+                    </div>
                   </div>
                 </td>
-                <td className="px-4 py-2.5 text-slate-200 text-xs">{c.name || '—'}</td>
-                <td className="px-4 py-2.5"><span className={c.group ? 'badge-blue' : ''}>{c.group || '—'}</span></td>
-                <td className="px-4 py-2.5 text-slate-500 text-xs">{c.comment}</td>
+                <td className="px-4 py-3">
+                  <div className="text-white text-xs font-semibold">{c.nickname || c.name || '—'}</div>
+                  <div className="text-[10px] text-slate-500 uppercase tracking-tighter">{c.vendor || 'Unknown Device'}</div>
+                </td>
+                <td className="px-4 py-3">
+                  <span className={c.group ? 'badge-blue' : 'text-slate-600 text-[10px]'}>
+                    {c.group_name || c.group || 'Default'}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 text-[10px] italic">{c.comment}</span>
+                    <Link href={`/clients/${c.id}`} className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-all">
+                      <ExternalLink size={12} />
+                    </Link>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

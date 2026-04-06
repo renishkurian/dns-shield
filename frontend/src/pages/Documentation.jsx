@@ -159,6 +159,46 @@ export default function Documentation({ user: currentUser }) {
               ]} />
             </Section>
 
+            <Section icon={Clock} title="Scheduled Blocking" color="purple" badge="New in v2.1">
+              <p>Automate your security posture by enabling or disabling rules based on the time of day and day of week.</p>
+              <ul className="list-disc ml-5 space-y-1 mt-2">
+                <li>Create schedules for domains, patterns, or app categories.</li>
+                <li>Visual day/time selector with 1-minute precision.</li>
+                <li>Powered by an asynchronous <code className="text-xs">APScheduler</code> background worker.</li>
+                <li>Perfect for "Work Hours" focus or "Bedtime" safety for specific client groups.</li>
+              </ul>
+              <p className="mt-2 text-xs italic text-slate-500">Navigate: Blocking → Schedules</p>
+            </Section>
+
+            <Section icon={Bell} title="Alerts & Notifications" color="red" badge="New in v2.1">
+              <p>Get notified instantly when security events or system issues occur.</p>
+              <FeatureGrid items={[
+                { icon: ShieldAlert, title: 'Malware Hits', desc: 'Alert when a device on your network attempts to contact a known-malicious domain.' },
+                { icon: Wifi, title: 'New Devices', desc: 'Immediate notification when an unknown MAC address joins the network.' },
+                { icon: Database, title: 'Gravity Failures', desc: 'Alerts if a scheduled blocklist update fails or a remote list is unreachable.' },
+                { icon: Bell, title: 'Multi-Channel', desc: 'Supports Email (SMTP), Slack Webhooks, Telegram Bots, and Custom Webhooks.' },
+              ]} />
+              <p className="mt-2 text-[10px] text-slate-500 uppercase font-bold">Configure: Settings → Alerts</p>
+            </Section>
+
+            <Section icon={Search} title="Global Command Palette" color="brand" badge="New in v2.1">
+              <p>Lightning-fast navigation and data discovery via <kbd className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-white text-[10px]">Ctrl+K</kbd> or <kbd className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-white text-[10px]">⌘K</kbd>.</p>
+              <ul className="list-disc ml-5 space-y-1 mt-2">
+                <li><strong>Fuzzy Search:</strong> Instantly find clients by IP or name, domains in the log, or any system page.</li>
+                <li><strong>Keyboard First:</strong> Navigate results with arrow keys and Enter, without leaving the keyboard.</li>
+                <li><strong>Contextual Actions:</strong> Quick links to recent pages and common tools.</li>
+              </ul>
+            </Section>
+
+            <Section icon={Activity} title="Notification Centre" color="blue" badge="New in v2.1">
+              <p>A real-time "Intelligence Drawer" accessible via the bell icon in the top bar.</p>
+              <ul className="list-disc ml-5 space-y-1 mt-2">
+                <li>Live stream of security events and system triggers.</li>
+                <li>Persistent history of the last 10 critical events.</li>
+                <li>Direct links to the <strong>Intelligence Log</strong> for deep-dive investigation.</li>
+              </ul>
+            </Section>
+
             <Section icon={BarChart2} title="Historical Stats API" color="brand" badge="New in v2.1">
               <p>Query per-day traffic trends for up to 30 days.</p>
               <p><code className="text-xs">GET /api/stats/history?days=7</code> — returns <code className="text-xs">day, total, blocked</code> per day, ready to drive custom Grafana dashboards.</p>

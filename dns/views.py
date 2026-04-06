@@ -20,15 +20,32 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from dns.models import QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer
+from dns.models import (
+    QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer,
+    ScheduledRule, AlertConfig, SystemEvent, AIUsageLog
+)
 from dns.permissions import IsAdminRole
 from dns.serializers import (
     LoginSerializer, QueryLogSerializer, BlockedDomainSerializer,
     PatternSerializer, AllowedDomainSerializer, AdlistSerializer,
     SafeSearchSerializer, SystemSettingSerializer, ClientSerializer, UserSerializer,
     BlockGroupSerializer, VPNServerSerializer, VPNPeerSerializer,
-    AppCategorySerializer, AppControlSerializer
+    AppCategorySerializer, AppControlSerializer,
+    ScheduledRuleSerializer, AlertConfigSerializer, SystemEventSerializer,
+    AIUsageLogSerializer
 )
+
+class AIUsageLogListView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        qs = AIUsageLog.objects.all()
+        return Response(AIUsageLogSerializer(qs, many=True).data)
+
+    def delete(self, request):
+        AIUsageLog.objects.all().delete()
+        return Response(status=204)
+
 from blocks.models import BlockedDomain, Pattern, Adlist, GravityDomain, AllowedDomain, BlockGroup, AppCategory, AppControl
 from users.models import UserProfile
 
@@ -95,13 +112,25 @@ def _get_role(user):
 
 # ─── STATS ────────────────────────────────────────────────────────────────────
 
+def _get_since(request):
+    """Helper to get 'since' timestamp from query params."""
+    try:
+        r = request.query_params.get('range', '24h')
+        if r == '7d': return dj_timezone.now() - timedelta(days=7)
+        if r == '30d': return dj_timezone.now() - timedelta(days=30)
+        if r == 'all': return dj_timezone.now() - timedelta(days=365*10)
+        return dj_timezone.now() - timedelta(hours=24)
+    except Exception:
+        return dj_timezone.now() - timedelta(hours=24)
+
+
 class StatsSummaryView(APIView):
     def get(self, request):
         from dns.models import SystemSetting
-        today = dj_timezone.now().date()
-        qs = QueryLog.objects.filter(timestamp__date=today)
+        since = _get_since(request)
+        qs = QueryLog.objects.filter(timestamp__gte=since)
         total = qs.count()
-        blocked = qs.filter(status__in=['blocked_pattern', 'blocked_domain', 'blocked_list']).count()
+        blocked = qs.filter(status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai']).count()
         avg_latency = qs.aggregate(a=Avg('response_time_ms'))['a'] or 0
         
         # Total domains on adlists (gravity)
@@ -109,8 +138,8 @@ class StatsSummaryView(APIView):
         total_gravity = int(grav.value) if grav else 0
 
         return Response({
-            'queries_today': total,
-            'blocked_today': blocked,
+            'queries': total,
+            'blocked': blocked,
             'block_percent': round(blocked / total * 100, 1) if total else 0,
             'avg_latency_ms': round(avg_latency, 2),
             'total_gravity': total_gravity,
@@ -119,27 +148,40 @@ class StatsSummaryView(APIView):
 
 class StatsHourlyView(APIView):
     def get(self, request):
-        since = dj_timezone.now() - timedelta(hours=24)
+        since = _get_since(request)
         qs = QueryLog.objects.filter(timestamp__gte=since)
         data = {}
-        for entry in qs.values('timestamp__hour', 'status').annotate(count=Count('id')):
-            hour = entry['timestamp__hour']
-            if hour not in data:
-                data[hour] = {'hour': hour, 'allowed': 0, 'blocked': 0}
-            if entry['status'] in ('blocked_pattern', 'blocked_domain', 'blocked_list'):
-                data[hour]['blocked'] += entry['count']
+        # For long ranges, group by day instead of hour
+        r = request.query_params.get('range', '24h')
+        group_field = 'timestamp__day' if r in ['7d', '30d', 'all'] else 'timestamp__hour'
+        
+        for entry in qs.values(group_field, 'status').annotate(count=Count('id')):
+            val = entry[group_field]
+            if r in ['7d', '30d', 'all']:
+                # Get first match to find the actual date
+                first = qs.filter(**{group_field: val}).first()
+                label = first.timestamp.strftime('%b %d') if first else str(val)
             else:
-                data[hour]['allowed'] += entry['count']
+                label = f"{val:02d}:00"
+            
+            if val not in data:
+                data[val] = {'label': label, 'allowed': 0, 'blocked': 0, 'hour': val}
+            
+            if entry['status'] in ('blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai'):
+                data[val]['blocked'] += entry['count']
+            else:
+                data[val]['allowed'] += entry['count']
+        
         return Response(sorted(data.values(), key=lambda x: x['hour']))
 
 
 class StatsTopDomainsView(APIView):
     def get(self, request):
-        since = dj_timezone.now() - timedelta(hours=24)
+        since = _get_since(request)
         data = (
             QueryLog.objects.filter(
                 timestamp__gte=since,
-                status__in=['blocked_pattern', 'blocked_domain', 'blocked_list']
+                status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai']
             )
             .values('domain')
             .annotate(count=Count('id'))
@@ -150,7 +192,7 @@ class StatsTopDomainsView(APIView):
 
 class StatsTopAllowedDomainsView(APIView):
     def get(self, request):
-        since = dj_timezone.now() - timedelta(hours=24)
+        since = _get_since(request)
         data = (
             QueryLog.objects.filter(
                 timestamp__gte=since,
@@ -165,13 +207,14 @@ class StatsTopAllowedDomainsView(APIView):
 
 class StatsTopClientsView(APIView):
     def get(self, request):
-        since = dj_timezone.now() - timedelta(hours=24)
+        since = _get_since(request)
         data = (
             QueryLog.objects.filter(timestamp__gte=since)
             .values('client_ip')
             .annotate(count=Count('id'))
             .order_by('-count')[:5]
         )
+        results = []
         for item in data:
             try:
                 name = Client.objects.get(ip=item['client_ip']).name
@@ -183,7 +226,7 @@ class StatsTopClientsView(APIView):
 
 class StatsQueryTypesView(APIView):
     def get(self, request):
-        since = dj_timezone.now() - timedelta(hours=24)
+        since = _get_since(request)
         data = (
             QueryLog.objects.filter(timestamp__gte=since)
             .values('query_type')
@@ -195,7 +238,7 @@ class StatsQueryTypesView(APIView):
 
 class StatsUpstreamServersView(APIView):
     def get(self, request):
-        since = dj_timezone.now() - timedelta(hours=24)
+        since = _get_since(request)
         data = (
             QueryLog.objects.filter(timestamp__gte=since)
             .values('resolved_by')
@@ -204,9 +247,9 @@ class StatsUpstreamServersView(APIView):
         )
         formatted = []
         for d in data:
-            label = d['resolved_by']
-            if not label: label = 'Blocked'
-            formatted.append({'label': label, 'count': d['count']})
+             label = d['resolved_by']
+             if not label: label = 'Blocked'
+             formatted.append({'label': label, 'count': d['count']})
         return Response(formatted)
 
 
@@ -658,7 +701,7 @@ class AIGenerateAppView(APIView):
             
         from dns.ai_service import generate_app_domains
         try:
-            domains = generate_app_domains(app_name)
+            domains = generate_app_domains(app_name, user=request.user)
             return Response({'domains': domains})
         except Exception as e:
             return Response({'error': str(e)}, status=500)
@@ -677,7 +720,7 @@ class AIExplainView(APIView):
         
         from dns.ai_service import ask_ai
         try:
-            explanation = ask_ai(system_prompt, user_prompt)
+            explanation = ask_ai(system_prompt, user_prompt, user=request.user, feature='domain_explain', query=domain)
             return Response({'explanation': explanation})
         except Exception as e:
             return Response({'error': str(e)}, status=500)
@@ -1276,6 +1319,245 @@ class ApiTokenView(APIView):
     def delete(self, request):
         SystemSetting.objects.filter(key=f'api_token_{request.user.id}').delete()
         return Response({'status': 'revoked'})
+
+
+# ─── PER-CLIENT HISTORY (Phase 22) ──────────────────────────────────────────
+
+class ClientHistoryView(APIView):
+    def get(self, request, pk):
+        try:
+            client = Client.objects.get(pk=pk)
+        except Client.DoesNotExist:
+            return Response({'error': 'Client not found'}, status=404)
+        
+        qs = QueryLog.objects.filter(client_ip=client.ip)
+        # Apply more filters if needed
+        qs = qs[:500]
+        return Response(QueryLogSerializer(qs, many=True).data)
+
+
+class ClientStatsView(APIView):
+    def get(self, request, pk):
+        try:
+            client = Client.objects.get(pk=pk)
+        except Client.DoesNotExist:
+            return Response({'error': 'Client not found'}, status=404)
+        
+        since = dj_timezone.now() - timedelta(hours=24)
+        qs = QueryLog.objects.filter(client_ip=client.ip, timestamp__gte=since)
+        
+        total = qs.count()
+        blocked = qs.filter(status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai']).count()
+        
+        top_domains = (
+            qs.values('domain')
+            .annotate(count=Count('id'))
+            .order_by('-count')[:10]
+        )
+        
+        hourly = {}
+        for entry in qs.values('timestamp__hour', 'status').annotate(count=Count('id')):
+            hour = entry['timestamp__hour']
+            if hour not in hourly:
+                hourly[hour] = {'hour': hour, 'allowed': 0, 'blocked': 0}
+            if entry['status'] in ('blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai'):
+                hourly[hour]['blocked'] += entry['count']
+            else:
+                hourly[hour]['allowed'] += entry['count']
+        
+        return Response({
+            'total': total,
+            'blocked': blocked,
+            'top_domains': list(top_domains),
+            'hourly': sorted(hourly.values(), key=lambda x: x['hour']),
+            'client': ClientSerializer(client).data
+        })
+
+
+# ─── SCHEDULED BLOCKING (Phase 23) ──────────────────────────────────────────
+
+class ScheduledRuleListView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        return Response(ScheduledRuleSerializer(ScheduledRule.objects.all(), many=True).data)
+
+    def post(self, request):
+        ser = ScheduledRuleSerializer(data=request.data)
+        if ser.is_valid():
+            ser.save()
+            return Response(ser.data, status=201)
+        return Response(ser.errors, status=400)
+
+
+class ScheduledRuleDetailView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def patch(self, request, pk):
+        try:
+            obj = ScheduledRule.objects.get(pk=pk)
+        except ScheduledRule.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+        ser = ScheduledRuleSerializer(obj, data=request.data, partial=True)
+        if ser.is_valid():
+            ser.save()
+            return Response(ser.data)
+        return Response(ser.errors, status=400)
+
+    def delete(self, request, pk):
+        try:
+            ScheduledRule.objects.get(pk=pk).delete()
+            return Response(status=204)
+        except ScheduledRule.DoesNotExist:
+            return Response(status=404)
+
+
+# ─── ALERTS (Phase 24) ──────────────────────────────────────────────────────
+
+class AlertConfigListView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        return Response(AlertConfigSerializer(AlertConfig.objects.all(), many=True).data)
+
+    def post(self, request):
+        ser = AlertConfigSerializer(data=request.data)
+        if ser.is_valid():
+            ser.save()
+            return Response(ser.data, status=201)
+        return Response(ser.errors, status=400)
+
+
+class AlertConfigDetailView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def patch(self, request, pk):
+        try:
+            obj = AlertConfig.objects.get(pk=pk)
+        except AlertConfig.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+        ser = AlertConfigSerializer(obj, data=request.data, partial=True)
+        if ser.is_valid():
+            ser.save()
+            return Response(ser.data)
+        return Response(ser.errors, status=400)
+
+    def delete(self, request, pk):
+        try:
+            AlertConfig.objects.get(pk=pk).delete()
+            return Response(status=204)
+        except AlertConfig.DoesNotExist:
+            return Response(status=404)
+
+
+# ─── GLOBAL SEARCH (Phase 25) ────────────────────────────────────────────────
+
+class GlobalSearchView(APIView):
+    def get(self, request):
+        q = request.query_params.get('q', '').strip()
+        if not q or len(q) < 2:
+            return Response([])
+        
+        results = []
+        # Search Clients
+        clients = Client.objects.filter(Q(ip__icontains=q) | Q(name__icontains=q) | Q(hostname__icontains=q))[:5]
+        for c in clients:
+            results.append({'type': 'client', 'id': c.id, 'label': c.name or c.hostname or c.ip, 'sub': c.ip, 'href': f'/clients/{c.id}'})
+        
+        # Search Patterns
+        patterns = Pattern.objects.filter(Q(name__icontains=q) | Q(pattern__icontains=q))[:5]
+        for p in patterns:
+            results.append({'type': 'pattern', 'id': p.id, 'label': p.name, 'sub': p.pattern, 'href': '/blocks/patterns'})
+        
+        # Search Blocked Domains
+        domains = BlockedDomain.objects.filter(domain__icontains=q)[:5]
+        for d in domains:
+            results.append({'type': 'domain', 'id': d.id, 'label': d.domain, 'sub': 'Blocked Domain', 'href': '/blocks/domains'})
+        
+        # Search App categories
+        apps = AppCategory.objects.filter(name__icontains=q)[:3]
+        for a in apps:
+            results.append({'type': 'app', 'id': a.id, 'label': a.name, 'sub': 'App Category', 'href': '/blocks/apps'})
+            
+        return Response(results)
+
+
+# ─── DOMAIN ANALYTICS (Phase 27) ─────────────────────────────────────────────
+
+class DomainAnalyticsView(APIView):
+    def get(self, request):
+        domain = request.query_params.get('domain')
+        if not domain:
+            return Response({'error': 'Domain required'}, status=400)
+            
+        since = dj_timezone.now() - timedelta(days=30)
+        qs = QueryLog.objects.filter(domain=domain, timestamp__gte=since)
+        
+        total = qs.count()
+        status_split = qs.values('status').annotate(count=Count('id'))
+        top_clients = qs.values('client_ip').annotate(count=Count('id')).order_by('-count')[:5]
+        
+        # Daily breakdown for 30d
+        daily = (
+            qs.extra(select={'day': "date(timestamp)"})
+            .values('day')
+            .annotate(count=Count('id'))
+            .order_by('day')
+        )
+        
+        # Check current rules
+        from dns_proxy.matcher import get_matcher
+        matcher = get_matcher()
+        is_blocked = not matcher.is_allowed(domain) and (
+            matcher.match_pattern(domain) or 
+            matcher.match_domain(domain) or 
+            matcher.in_gravity(domain)
+        )
+        
+        return Response({
+            'domain': domain,
+            'total_hits_30d': total,
+            'status_split': list(status_split),
+            'top_clients': list(top_clients),
+            'history': list(daily),
+            'is_blocked': is_blocked
+        })
+
+
+# ─── THREAT FEEDS (Phase 28) ───────────────────────────────────────────────
+
+class ThreatFeedListView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        # We handle threat feeds as adlists with a specific comment or flag
+        feeds = Adlist.objects.filter(comment__startswith='[THREAT_FEED]')
+        return Response(AdlistSerializer(feeds, many=True).data)
+
+
+# ─── NOTIFICATIONS (Phase 29) ──────────────────────────────────────────────
+
+class NotificationsView(APIView):
+    def get(self, request):
+        qs = SystemEvent.objects.all()[:50]
+        return Response(SystemEventSerializer(qs, many=True).data)
+
+    def post(self, request):
+        # Mark all as read
+        SystemEvent.objects.filter(read=False).update(read=True)
+        return Response({'ok': True})
+
+
+class DnsCacheFlushView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def post(self, request):
+        try:
+            # Requires unbound-control configured
+            subprocess.run(['sudo', 'unbound-control', 'flush_all'], check=False)
+            return Response({'ok': True})
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
 
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────

@@ -65,6 +65,9 @@ class Client(models.Model):
     vendor = models.CharField(max_length=100, blank=True)
     os_hint = models.CharField(max_length=100, blank=True)
     last_seen = models.DateTimeField(null=True, blank=True)
+    nickname = models.CharField(max_length=100, blank=True)
+    device_type = models.CharField(max_length=20, default='other')
+    icon = models.CharField(max_length=50, blank=True)
     comment = models.TextField(blank=True)
 
     def __str__(self):
@@ -96,3 +99,68 @@ class VPNPeer(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.user.username})"
+
+
+class ScheduledRule(models.Model):
+    RULE_TYPES = [('domain', 'Domain'), ('pattern', 'Pattern'), ('app_category', 'App Category')]
+    DAYS = [('Mon','Mon'),('Tue','Tue'),('Wed','Wed'),('Thu','Thu'),('Fri','Fri'),('Sat','Sat'),('Sun','Sun')]
+    name = models.CharField(max_length=100)
+    group = models.ForeignKey('blocks.BlockGroup', on_delete=models.SET_NULL, null=True, blank=True)
+    rule_type = models.CharField(max_length=20, choices=RULE_TYPES)
+    target = models.CharField(max_length=255, help_text='Domain, pattern text, or app category name')
+    days = models.CharField(max_length=50, default='Mon,Tue,Wed,Thu,Fri')
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    timezone = models.CharField(max_length=50, default='UTC')
+    enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
+class AlertConfig(models.Model):
+    EVENT_TYPES = [
+        ('malware_hit', 'Malware/Threat Domain Hit'),
+        ('new_device', 'New Device Joined Network'),
+        ('shield_expire', 'Shield Disable Expired'),
+        ('gravity_fail', 'Gravity Update Failed'),
+        ('high_volume', 'Unusually High Query Volume'),
+    ]
+    CHANNELS = [('email', 'Email'), ('slack', 'Slack'), ('telegram', 'Telegram'), ('webhook', 'Webhook')]
+    event_type = models.CharField(max_length=30, choices=EVENT_TYPES)
+    channel = models.CharField(max_length=20, choices=CHANNELS)
+    destination = models.CharField(max_length=500, help_text='Email, webhook URL, Telegram chat ID, or Slack webhook')
+    enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.event_type} → {self.channel}"
+
+
+class SystemEvent(models.Model):
+    SEVERITIES = [('info', 'Info'), ('warning', 'Warning'), ('critical', 'Critical')]
+    type = models.CharField(max_length=50)
+    message = models.TextField()
+    severity = models.CharField(max_length=10, choices=SEVERITIES, default='info')
+    read = models.BooleanField(default=False, db_index=True)
+    data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+class AIUsageLog(models.Model):
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    feature = models.CharField(max_length=50, help_text='e.g., domain_explain, app_generator')
+    query = models.CharField(max_length=255, help_text='The domain or app name being processed')
+    prompt = models.TextField(blank=True)
+    response = models.TextField(blank=True)
+    tokens_estimate = models.IntegerField(default=0)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"AI Query: {self.query} ({self.feature}) @ {self.timestamp}"

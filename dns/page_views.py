@@ -211,6 +211,50 @@ def _network_map_props(request):
     return {'clients': ClientSerializer(Client.objects.all(), many=True).data}
 
 
+def _client_detail_props(request):
+    pk = request.resolver_match.kwargs.get('pk')
+    from dns.views import ClientStatsView
+    return _call_view(ClientStatsView, request)
+
+
+def _schedules_props(request):
+    from dns.models import ScheduledRule
+    from dns.serializers import ScheduledRuleSerializer
+    from blocks.models import BlockGroup
+    from dns.serializers import BlockGroupSerializer
+    return {
+        'schedules': ScheduledRuleSerializer(ScheduledRule.objects.all(), many=True).data,
+        'groups': BlockGroupSerializer(BlockGroup.objects.all(), many=True).data
+    }
+
+
+def _alerts_props(request):
+    from dns.models import AlertConfig
+    from dns.serializers import AlertConfigSerializer
+    return {'configs': AlertConfigSerializer(AlertConfig.objects.all(), many=True).data}
+
+
+def _domain_detail_props(request):
+    domain = request.GET.get('domain')
+    if not domain: return {}
+    from dns.views import DomainAnalyticsView
+    return _call_view(DomainAnalyticsView, request)
+
+
+def _system_log_props(request):
+    from dns.models import SystemEvent
+    from dns.serializers import SystemEventSerializer
+    events = SystemEvent.objects.all()[:100]
+    return {'events': SystemEventSerializer(events, many=True).data}
+
+
+def _threat_feeds_props(request):
+    from blocks.models import Adlist
+    from dns.serializers import AdlistSerializer
+    feeds = Adlist.objects.filter(comment__startswith='[THREAT_FEED]')
+    return {'feeds': AdlistSerializer(feeds, many=True).data}
+
+
 # ─── Wire up all page views ───────────────────────────────────────────────────
 
 blocks_domains_view = inertia_page('blocks/Domains', _blocks_domains_props)(lambda r: None)
@@ -241,3 +285,12 @@ tools_view = inertia_page('Tools')(lambda r: None)
 audit_log_view = inertia_page('AuditLog')(lambda r: None)
 system_health_view = inertia_page('settings/SystemHealth')(lambda r: None)
 api_token_view = inertia_page('settings/ApiToken')(lambda r: None)
+system_log_view = inertia_page('settings/SystemLog', _system_log_props)(lambda r: None)
+
+# Phase 22-29 Pages
+client_detail_view = inertia_page('ClientDetail', _client_detail_props)(lambda r: None)
+schedules_view = inertia_page('Schedules', _schedules_props)(lambda r: None)
+alerts_view = inertia_page('settings/Alerts', _alerts_props)(lambda r: None)
+domain_detail_view = inertia_page('DomainDetail', _domain_detail_props)(lambda r: None)
+threat_feeds_view = inertia_page('settings/ThreatFeeds', _threat_feeds_props)(lambda r: None)
+notifications_view = inertia_page('Notifications')(lambda r: None)
