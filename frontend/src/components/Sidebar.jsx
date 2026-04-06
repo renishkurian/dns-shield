@@ -5,7 +5,7 @@ import {
   LayoutDashboard, List, Shield, Filter, CheckCircle, Globe,
   Users, Settings, Search, Network, Download, LogOut,
   ChevronLeft, ChevronRight, Wifi, User, Database, Menu, BookOpen, Sparkles,
-  Wrench, ClipboardList, Activity
+  Wrench, ClipboardList, Activity, Key
 } from 'lucide-react'
 import ShieldControl from './ShieldControl'
 
@@ -43,6 +43,7 @@ const navGroups = [
       { label: 'DoH Setup', href: '/settings/doh', icon: Shield },
       { label: 'Backup', href: '/settings/backup', icon: Download },
       { label: 'AI Integrations', href: '/settings/ai', icon: Sparkles },
+      { label: 'API Token', href: '/profile', icon: Key },
     ]
   },
   {
