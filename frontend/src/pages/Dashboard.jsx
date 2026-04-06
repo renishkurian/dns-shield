@@ -173,11 +173,6 @@ SystemStatus.propTypes = { status: PropTypes.object }
 // ─── Frequency table (Pi-hole style) ───────────────────────────────────────────
 function FrequencyTable({ title, data, color = 'blue' }) {
   const maxCount = data?.length > 0 ? Math.max(...data.map(d => d.count)) : 1
-  const barColors = {
-    green: 'bg-green-500/20 text-green-400 border-green-500/30',
-    red: 'bg-red-500/20 text-red-400 border-red-500/30',
-    blue: 'bg-brand-500/20 text-brand-400 border-brand-500/30',
-  }
   const fillColors = {
     green: 'bg-green-500/40',
     red: 'bg-red-500/40',
@@ -207,6 +202,77 @@ function FrequencyTable({ title, data, color = 'blue' }) {
         })}
         {!data?.length && <p className="text-slate-600 text-xs italic">No domains recorded yet</p>}
       </div>
+    </div>
+  )
+}
+
+function AIInsightCard() {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetchInsight = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/stats/ai-insight')
+      const json = await res.json()
+      setData(json)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchInsight()
+  }, [])
+
+  if (loading) return (
+    <div className="card h-full flex flex-col justify-center items-center py-12 relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-brand-500/5 to-transparent animate-pulse" />
+        <Activity size={32} className="text-brand-500/20 animate-bounce mb-4" />
+        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">AI analyzing threats...</p>
+    </div>
+  )
+
+  const score = data?.risk_score || 0
+  const scoreColor = score > 70 ? 'text-red-400' : score > 30 ? 'text-yellow-400' : 'text-emerald-400'
+
+  return (
+    <div className="card h-full bg-gradient-to-br from-slate-900 to-slate-950 border-brand-500/20 relative group overflow-hidden">
+      <div className="absolute -right-12 -top-12 w-40 h-40 bg-brand-500/5 rounded-full blur-3xl group-hover:bg-brand-500/10 transition-all duration-700" />
+      
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <div className="p-2 bg-brand-500/10 rounded-xl">
+             <Shield size={16} className="text-brand-400" />
+          </div>
+          <h3 className="font-bold text-white text-sm">AI Security Guard</h3>
+        </div>
+        <div className={`text-xl font-black ${scoreColor} tracking-tighter`}>
+          {score}<span className="text-[10px] text-slate-500 ml-0.5">/100</span>
+        </div>
+      </div>
+
+      <p className="text-xs text-slate-300 leading-relaxed italic mb-6">
+        "{data?.insight || 'No significant threats detected in the last analysis cycle.'}"
+      </p>
+
+      <div className="space-y-3">
+        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Detected Vectors</p>
+        <div className="flex flex-wrap gap-2">
+          {(data?.top_categories || ['Safe']).map(cat => (
+            <span key={cat} className="px-2 py-1 bg-brand-500/10 border border-brand-500/20 rounded-lg text-[10px] font-bold text-brand-400 uppercase tracking-tight">
+              {cat}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <button 
+        onClick={fetchInsight}
+        className="mt-6 w-full py-2 bg-brand-500/5 hover:bg-brand-500/10 border border-brand-500/10 text-[10px] font-bold text-brand-400 uppercase tracking-widest rounded-xl transition-all"
+      >
+        Refresh Analysis
+      </button>
     </div>
   )
 }
@@ -348,6 +414,9 @@ export default function Dashboard({ user, summary: initialSummary, hourly: initi
           <div className="flex-1 min-h-[160px]">
             <HourlyChart data={stats.hourly} />
           </div>
+        </div>
+        <div className="lg:col-span-1">
+          <AIInsightCard />
         </div>
       </div>
 

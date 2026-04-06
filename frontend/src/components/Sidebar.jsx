@@ -42,6 +42,7 @@ const navGroups = [
     items: [
       { label: 'DNS Config', href: '/settings/dns', icon: Globe },
       { label: 'Alerts', href: '/settings/alerts', icon: Bell },
+      { label: 'Appearance', href: '/settings/appearance', icon: Palette },
       { label: 'AI Integrations', href: '/settings/ai', icon: Sparkles },
       { label: 'API Token', href: '/settings/api-token', icon: Key },
     ]

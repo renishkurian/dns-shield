@@ -249,8 +249,40 @@ class StatsUpstreamServersView(APIView):
         for d in data:
              label = d['resolved_by']
              if not label: label = 'Blocked'
-             formatted.append({'label': label, 'count': d['count']})
+             formatted.append({ 'label': label, 'count': d['count'] })
         return Response(formatted)
+
+
+class StatsAIThreatInsightView(APIView):
+    def get(self, request):
+        # We analyze the last 50 blocked queries
+        qs = QueryLog.objects.filter(
+            status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai']
+        ).order_by('-timestamp')[:50]
+        
+        if not qs.exists():
+            return Response({'insight': 'No threats detected recently.', 'score': 0})
+            
+        domains = [q.domain for q in qs]
+        from dns.ai_service import ask_ai
+        
+        system_prompt = (
+            "You are a network security analyst. Analyze a list of 50 blocked DNS domains "
+            "and categorize the current threat level of the network. "
+            "Return a JSON object with: 'insight' (short human sentence summary), "
+            "'risk_score' (0-100), and 'top_categories' (array of strings, e.g. ['Adware', 'Phishing']). "
+            "Do not return markdown, just raw JSON."
+        )
+        user_prompt = f"Domains blocked recently: {', '.join(domains)}"
+        
+        try:
+            res_text = ask_ai(system_prompt, user_prompt, feature='threat_insight')
+            # Clean possible markdown
+            clean_text = res_text.replace("```json", "").replace("```", "").strip()
+            data = json.loads(clean_text)
+            return Response(data)
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
 
 
 # ─── QUERY LOG ────────────────────────────────────────────────────────────────

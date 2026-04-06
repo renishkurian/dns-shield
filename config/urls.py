@@ -37,6 +37,7 @@ urlpatterns = [
         path('audit', page_views.audit_log_view, name='audit'),
     path('settings/health', page_views.system_health_view, name='system-health'),
     path('settings/api-token', page_views.api_token_view, name='api-token'),
+    path('settings/appearance', page_views.appearance_view, name='appearance'),
     
     # Phase 22-29 Pages
     path('clients/<int:pk>', page_views.client_detail_view, name='client-detail'),

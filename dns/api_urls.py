@@ -18,6 +18,7 @@ urlpatterns = [
     path('stats/top-clients', views.StatsTopClientsView.as_view()),
     path('stats/query-types', views.StatsQueryTypesView.as_view()),
     path('stats/upstream-servers', views.StatsUpstreamServersView.as_view()),
+    path('stats/ai-insight', views.StatsAIThreatInsightView.as_view()),
 
     # Query Log
     path('queries', views.QueryLogListView.as_view()),

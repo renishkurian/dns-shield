@@ -285,6 +285,7 @@ tools_view = inertia_page('Tools')(lambda r: None)
 audit_log_view = inertia_page('AuditLog')(lambda r: None)
 system_health_view = inertia_page('settings/SystemHealth')(lambda r: None)
 api_token_view = inertia_page('settings/ApiToken')(lambda r: None)
+appearance_view = inertia_page('settings/Appearance')(lambda r: None)
 system_log_view = inertia_page('settings/SystemLog', _system_log_props)(lambda r: None)
 
 # Phase 22-29 Pages
