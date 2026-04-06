@@ -235,3 +235,8 @@ network_map_view = inertia_page('NetworkMap', _network_map_props)(lambda r: None
 
 # Docs
 documentation_view = inertia_page('Documentation')(lambda r: None)
+
+# Phase 21+ Pages
+tools_view = inertia_page('Tools')(lambda r: None)
+audit_log_view = inertia_page('AuditLog')(lambda r: None)
+system_health_view = inertia_page('settings/SystemHealth')(lambda r: None)

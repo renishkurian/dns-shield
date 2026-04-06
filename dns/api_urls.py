@@ -97,4 +97,17 @@ urlpatterns = [
     # Shield Control
     path('system/shield-status', views.ShieldStatusView.as_view()),
     path('system/shield-toggle', views.ShieldToggleView.as_view()),
+
+    # Tools
+    path('tools/search', views.DomainSearchView.as_view()),
+    path('tools/audit-log', views.AuditLogView.as_view()),
+
+    # System Health
+    path('system/health', views.SystemHealthView.as_view()),
+
+    # Historical stats
+    path('stats/history', views.StatsHistoryView.as_view()),
+
+    # API Token
+    path('auth/token', views.ApiTokenView.as_view()),
 ]

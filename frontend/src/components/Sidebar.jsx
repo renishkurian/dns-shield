@@ -4,7 +4,8 @@ import { router } from '@inertiajs/react'
 import {
   LayoutDashboard, List, Shield, Filter, CheckCircle, Globe,
   Users, Settings, Search, Network, Download, LogOut,
-  ChevronLeft, ChevronRight, Wifi, User, Database, Menu, BookOpen, Sparkles
+  ChevronLeft, ChevronRight, Wifi, User, Database, Menu, BookOpen, Sparkles,
+  Wrench, ClipboardList, Activity
 } from 'lucide-react'
 import ShieldControl from './ShieldControl'
 
@@ -42,6 +43,14 @@ const navGroups = [
       { label: 'DoH Setup', href: '/settings/doh', icon: Shield },
       { label: 'Backup', href: '/settings/backup', icon: Download },
       { label: 'AI Integrations', href: '/settings/ai', icon: Sparkles },
+    ]
+  },
+  {
+    label: 'Tools',
+    items: [
+      { label: 'Domain Search', href: '/tools', icon: Wrench },
+      { label: 'Audit Log', href: '/audit', icon: ClipboardList },
+      { label: 'System Health', href: '/settings/health', icon: Activity },
     ]
   },
   {

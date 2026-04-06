@@ -1107,6 +1107,177 @@ class ShieldToggleView(APIView):
         })
 
 
+
+# ─── DOMAIN SEARCH TOOL ────────────────────────────────────────────────────────
+
+class DomainSearchView(APIView):
+    def get(self, request):
+        import re as re_module
+        domain = request.query_params.get('q', '').strip().lower()
+        if not domain:
+            return Response({'error': 'Missing query parameter q'}, status=400)
+
+        results = []
+
+        for bd in BlockedDomain.objects.filter(domain__icontains=domain, enabled=True)[:10]:
+            results.append({'type': 'blocklist', 'source': 'Exact Block', 'domain': bd.domain,
+                            'match': bd.block_type, 'action': 'blocked'})
+
+        for al in AllowedDomain.objects.filter(domain__icontains=domain, enabled=True)[:5]:
+            results.append({'type': 'allowlist', 'source': 'Allowlist', 'domain': al.domain,
+                            'match': al.allow_type, 'action': 'allowed'})
+
+        grav_matches = GravityDomain.objects.filter(domain__icontains=domain).select_related('adlist')[:10]
+        for gd in grav_matches:
+            results.append({'type': 'gravity', 'source': gd.adlist.name, 'domain': gd.domain,
+                            'match': 'gravity', 'action': 'blocked'})
+
+        for pat in Pattern.objects.filter(enabled=True):
+            try:
+                if re_module.search(pat.pattern, domain, re_module.IGNORECASE):
+                    results.append({'type': 'pattern', 'source': pat.name, 'domain': domain,
+                                    'match': pat.pattern_type, 'action': 'blocked'})
+            except Exception:
+                pass
+
+        return Response({'query': domain, 'results': results, 'total': len(results)})
+
+
+# ─── SYSTEM HEALTH ─────────────────────────────────────────────────────────────
+
+class SystemHealthView(APIView):
+    def get(self, request):
+        import shutil, os
+        health = {}
+
+        try:
+            usage = shutil.disk_usage('/')
+            health['disk'] = {
+                'total_gb': round(usage.total / 1e9, 1),
+                'used_gb': round(usage.used / 1e9, 1),
+                'free_gb': round(usage.free / 1e9, 1),
+                'percent': round(usage.used / usage.total * 100, 1),
+            }
+        except Exception:
+            health['disk'] = {}
+
+        try:
+            with open('/proc/meminfo') as f:
+                lines = {}
+                for l in f:
+                    if ':' in l:
+                        k, v = l.split(':', 1)
+                        lines[k.strip()] = int(v.strip().split()[0])
+            total = lines.get('MemTotal', 0)
+            available = lines.get('MemAvailable', 0)
+            used = total - available
+            health['memory'] = {
+                'total_mb': round(total / 1024),
+                'used_mb': round(used / 1024),
+                'free_mb': round(available / 1024),
+                'percent': round(used / total * 100, 1) if total else 0,
+            }
+        except Exception:
+            health['memory'] = {}
+
+        try:
+            with open('/sys/class/thermal/thermal_zone0/temp') as f:
+                health['cpu_temp_c'] = round(int(f.read()) / 1000, 1)
+        except Exception:
+            health['cpu_temp_c'] = None
+
+        try:
+            with open('/proc/uptime') as f:
+                uptime_sec = float(f.read().split()[0])
+            health['uptime'] = {
+                'seconds': int(uptime_sec),
+                'days': int(uptime_sec // 86400),
+                'hours': int((uptime_sec % 86400) // 3600),
+                'minutes': int((uptime_sec % 3600) // 60),
+            }
+        except Exception:
+            health['uptime'] = {}
+
+        try:
+            from django.conf import settings
+            db_path = str(settings.DATABASES['default']['NAME'])
+            health['db_size_mb'] = round(os.path.getsize(db_path) / 1e6, 2)
+        except Exception:
+            health['db_size_mb'] = 0
+
+        health['total_queries'] = QueryLog.objects.count()
+        return Response(health)
+
+
+# ─── HISTORICAL STATS ──────────────────────────────────────────────────────────
+
+class StatsHistoryView(APIView):
+    def get(self, request):
+        days = min(max(int(request.query_params.get('days', 7)), 1), 30)
+        since = dj_timezone.now() - timedelta(days=days)
+        data = (
+            QueryLog.objects.filter(timestamp__gte=since)
+            .extra(select={'day': "date(timestamp)"})
+            .values('day')
+            .annotate(
+                total=Count('id'),
+                blocked=Count('id', filter=Q(status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai']))
+            )
+            .order_by('day')
+        )
+        return Response(list(data))
+
+
+# ─── AUDIT LOG ─────────────────────────────────────────────────────────────────
+
+class AuditLogView(APIView):
+    def get(self, request):
+        since = dj_timezone.now() - timedelta(hours=72)
+        blocked_domains = (
+            QueryLog.objects.filter(
+                timestamp__gte=since,
+                status__in=['blocked_list', 'blocked_domain', 'blocked_pattern', 'blocked_ai']
+            )
+            .values('domain')
+            .annotate(count=Count('id'))
+            .order_by('-count')[:50]
+        )
+        user_blocked = set(BlockedDomain.objects.values_list('domain', flat=True))
+        user_allowed = set(AllowedDomain.objects.values_list('domain', flat=True))
+
+        results = []
+        for item in blocked_domains:
+            d = item['domain']
+            if d not in user_blocked and d not in user_allowed:
+                source = 'Unknown'
+                gd = GravityDomain.objects.filter(domain=d).select_related('adlist').first()
+                if gd:
+                    source = f"Gravity: {gd.adlist.name}"
+                results.append({'domain': d, 'count': item['count'], 'source': source})
+        return Response(results)
+
+
+# ─── API TOKEN ─────────────────────────────────────────────────────────────────
+
+class ApiTokenView(APIView):
+    def get(self, request):
+        token = SystemSetting.objects.filter(key=f'api_token_{request.user.id}').first()
+        return Response({'token': token.value if token else None, 'user': request.user.username})
+
+    def post(self, request):
+        import secrets
+        token = secrets.token_hex(32)
+        SystemSetting.objects.update_or_create(
+            key=f'api_token_{request.user.id}',
+            defaults={'value': token, 'description': f'API token for {request.user.username}'}
+        )
+        return Response({'token': token})
+
+    def delete(self, request):
+        SystemSetting.objects.filter(key=f'api_token_{request.user.id}').delete()
+        return Response({'status': 'revoked'})
+
+
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 def _reload_matcher():

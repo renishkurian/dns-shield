@@ -30,4 +30,9 @@ urlpatterns = [
     path('blocks/apps', page_views.app_firewall_view, name='app-firewall'),
     path('network/map', page_views.network_map_view, name='network-map'),
     path('docs', page_views.documentation_view, name='docs'),
+
+    # Phase 21+
+    path('tools', page_views.tools_view, name='tools'),
+    path('audit', page_views.audit_log_view, name='audit'),
+    path('settings/health', page_views.system_health_view, name='system-health'),
 ]
