@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import PropTypes from 'prop-types'
-import Layout from '../components/Layout'
+import Layout from '../../components/Layout'
 import { Code, Key, Copy, RefreshCw, Trash2, CheckCircle, AlertCircle, Info } from 'lucide-react'
 
 function getCsrf() {
