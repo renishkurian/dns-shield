@@ -5,7 +5,7 @@ import {
   LayoutDashboard, List, Shield, Filter, CheckCircle, Globe,
   Users, Settings, Search, Network, Download, LogOut,
   ChevronLeft, ChevronRight, Wifi, User, Database, Menu, BookOpen, Sparkles,
-  Wrench, ClipboardList, Activity, Key, ShieldAlert, Clock, Bell
+  Wrench, ClipboardList, Activity, Key, ShieldAlert, Clock, Bell, Palette
 } from 'lucide-react'
 import ShieldControl from './ShieldControl'
 
