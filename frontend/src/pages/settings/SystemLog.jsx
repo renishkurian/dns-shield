@@ -20,6 +20,7 @@ export default function SystemLog({ user, events: initialEvents = [] }) {
   const [activeTab, setActiveTab] = useState('system')
   const [aiLogs, setAiLogs] = useState([])
   const [loading, setLoading] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const fetchAiLogs = async () => {
     setLoading(true)
@@ -39,12 +40,22 @@ export default function SystemLog({ user, events: initialEvents = [] }) {
     if (!confirm(`Clear all ${target}?`)) return
     
     if (activeTab === 'ai') {
-      await fetch('/api/ai/usage', { method: 'DELETE' })
+      await fetch('/api/ai/usage', { method: 'DELETE', headers: { 'X-CSRFToken': getCsrf() } })
       setAiLogs([])
     } else {
       setEvents([])
     }
   }
+
+  const exportAiCsv = () => {
+    window.open('/api/ai/usage/export', '_blank')
+  }
+
+  const filteredAiLogs = aiLogs.filter(log => 
+    log.query.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    log.feature.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (log.username && log.username.toLowerCase().includes(searchTerm.toLowerCase()))
+  )
 
   React.useEffect(() => {
     if (activeTab === 'ai') fetchAiLogs()
@@ -62,30 +73,50 @@ export default function SystemLog({ user, events: initialEvents = [] }) {
             <p className="text-sm text-slate-500 mt-1">Audit trail of security events, system triggers, and AI usage logs.</p>
           </div>
           <div className="flex gap-2">
+            {activeTab === 'ai' && (
+              <button onClick={exportAiCsv} className="btn-ghost text-brand-400 border border-brand-500/20 hover:bg-brand-500/5">
+                 <Download size={16} /> Export CSV
+              </button>
+            )}
             <button onClick={handleClear} className="btn-ghost text-red-400">
                <Trash2 size={16} /> Clear {activeTab === 'ai' ? 'AI Logs' : 'Log'}
             </button>
           </div>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex gap-1 p-1 bg-slate-900/50 border border-slate-800 rounded-xl mb-6 w-fit">
-          <button 
-            onClick={() => setActiveTab('system')}
-            className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
-              activeTab === 'system' ? 'bg-brand-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
-            }`}
-          >
-            System Events
-          </button>
-          <button 
-            onClick={() => setActiveTab('ai')}
-            className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
-              activeTab === 'ai' ? 'bg-purple-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
-            }`}
-          >
-            AI Audits
-          </button>
+        {/* Tab Switcher & Search */}
+        <div className="flex items-center justify-between gap-4 mb-6">
+          <div className="flex gap-1 p-1 bg-slate-900/50 border border-slate-800 rounded-xl w-fit">
+            <button 
+              onClick={() => setActiveTab('system')}
+              className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+                activeTab === 'system' ? 'bg-brand-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              System Events
+            </button>
+            <button 
+              onClick={() => setActiveTab('ai')}
+              className={`px-4 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+                activeTab === 'ai' ? 'bg-purple-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              AI Audits
+            </button>
+          </div>
+
+          {activeTab === 'ai' && (
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+              <input 
+                type="text" 
+                placeholder="Search AI logs..."
+                className="input pl-10 h-9 text-xs w-full"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+              />
+            </div>
+          )}
         </div>
 
         <div className="card p-0 overflow-hidden">
@@ -145,7 +176,7 @@ export default function SystemLog({ user, events: initialEvents = [] }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
-                {aiLogs.map(log => (
+                {filteredAiLogs.map(log => (
                   <tr key={log.id} className="hover:bg-purple-500/5 transition-colors group">
                     <td className="px-6 py-4 whitespace-nowrap text-slate-500 font-mono">
                       {new Date(log.timestamp).toLocaleString()}
@@ -171,10 +202,10 @@ export default function SystemLog({ user, events: initialEvents = [] }) {
                     </td>
                   </tr>
                 ))}
-                {aiLogs.length === 0 && !loading && (
+                {filteredAiLogs.length === 0 && !loading && (
                   <tr>
                     <td colSpan="5" className="py-20 text-center text-slate-600 italic">
-                      No AI usage logs found.
+                      {searchTerm ? 'No matching AI logs found.' : 'No AI usage logs found.'}
                     </td>
                   </tr>
                 )}
@@ -192,6 +223,10 @@ export default function SystemLog({ user, events: initialEvents = [] }) {
       </div>
     </Layout>
   )
+}
+
+function getCsrf() {
+  return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
 }
 
 SystemLog.propTypes = {

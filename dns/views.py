@@ -304,6 +304,32 @@ class QueryLogExportView(APIView):
         return response
 
 
+class AIUsageLogExportView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        qs = AIUsageLog.objects.all().order_by('-timestamp')[:5000]
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=[
+            'timestamp', 'user', 'user_id', 'feature', 'query', 'prompt', 'response', 'tokens_estimate'
+        ])
+        writer.writeheader()
+        for entry in qs:
+            writer.writerow({
+                'timestamp': entry.timestamp.isoformat(),
+                'user': entry.user.username if entry.user else 'System',
+                'user_id': entry.user.id if entry.user else '',
+                'feature': entry.feature,
+                'query': entry.query,
+                'prompt': entry.prompt,
+                'response': entry.response,
+                'tokens_estimate': entry.tokens_estimate,
+            })
+        response = HttpResponse(output.getvalue(), content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="ai_usage_audit.csv"'
+        return response
+
+
 # ─── BLOCKED DOMAINS ──────────────────────────────────────────────────────────
 
 class BlockedDomainListView(APIView):
