@@ -122,7 +122,7 @@ export default function Sidebar({ currentPath, user }) {
         <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : ''}`}>
           <div className="w-9 h-9 bg-slate-900 rounded-xl flex items-center justify-center shrink-0 border border-slate-800 overflow-hidden group/logo">
             <img 
-               src="/static/dist/assets/logo.png" 
+               src="/static/dist/logo.png" 
                alt="DNS Shield" 
                className="w-full h-full object-contain p-1.5 transition-transform duration-500 group-hover/logo:scale-110"
             />
