@@ -90,9 +90,25 @@ function ClientHourlyChart({ data }) {
   return <canvas ref={canvasRef} className="w-full h-full" />
 }
 
-export default function ClientDetail({ user, total, blocked, top_domains, hourly, client }) {
+export default function ClientDetail({ user, total, blocked, top_domains, hourly, client, error }) {
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
+
+  if (error || !client) {
+    return (
+      <Layout user={user} currentPath="/clients" title="Client Not Found">
+        <div className="max-w-md mx-auto mt-20 text-center">
+          <div className="w-16 h-16 bg-red-500/10 text-red-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <Monitor size={32} />
+          </div>
+          <h2 className="text-xl font-bold text-white mb-2">Client Not Found</h2>
+          <p className="text-slate-500 mb-6">{error || "The client you are looking for does not exist or has been removed."}</p>
+          <a href="/clients" className="btn-primary inline-flex">Back to Clients</a>
+        </div>
+      </Layout>
+    )
+  }
+
   const blockPercent = total > 0 ? ((blocked / total) * 100).toFixed(1) : 0
   const DeviceIcon = getDeviceIcon(client.device_type)
 
