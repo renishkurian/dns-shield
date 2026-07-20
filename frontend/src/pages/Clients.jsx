@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
-import { Plus, Trash2, Edit2, Wifi } from 'lucide-react'
+import { Plus, Trash2, Edit2, Wifi, ExternalLink } from 'lucide-react'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
@@ -119,9 +119,9 @@ export default function Clients({ user, clients: initial = [] }) {
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500 text-[10px] italic">{c.comment}</span>
-                    <Link href={`/clients/${c.id}`} className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-all">
+                    <a href={`/clients/${c.id}`} className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-all">
                       <ExternalLink size={12} />
-                    </Link>
+                    </a>
                   </div>
                 </td>
               </tr>

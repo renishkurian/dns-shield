@@ -16,7 +16,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "[1/8] Installing system packages..."
 apt-get update -qq
 apt-get install -y -qq \
-    python3.11 python3.11-venv python3-pip \
+    python3 python3-venv python3-pip \
     redis-server nginx supervisor \
     nodejs npm \
     unbound netfilter-persistent iptables-persistent \
@@ -35,7 +35,7 @@ mkdir -p "$APP_DIR/logs" "$APP_DIR/staticfiles" "$APP_DIR/media"
 
 # ─── Python virtualenv ────────────────────────────────────────────────────────
 echo "[3/8] Creating Python virtualenv..."
-python3.11 -m venv "$VENV"
+python3 -m venv "$VENV"
 $PIP install --upgrade pip -q
 $PIP install -r "$APP_DIR/requirements.txt" -q
 
@@ -68,7 +68,7 @@ chmod 440 /etc/sudoers.d/dns-shield
 echo "[7/8] Configuring supervisor..."
 cat > /etc/supervisor/conf.d/dns-shield.conf << 'EOF'
 [program:dns-shield-web]
-command=/opt/dns-shield/venv/bin/daphne -b 0.0.0.0 -p 8000 config.asgi:application
+command=/opt/dns-shield/venv/bin/daphne -b 0.0.0.0 -p 8889 config.asgi:application
 directory=/opt/dns-shield
 user=www-data
 autostart=true
@@ -99,7 +99,7 @@ supervisorctl update
 echo "[8/8] Configuring Nginx..."
 cat > /etc/nginx/sites-available/dns-shield << 'EOF'
 server {
-    listen 80 default_server;
+    listen 8888 default_server;
     server_name _;
 
     # Static files served directly
@@ -115,11 +115,11 @@ server {
 
     # Everything else proxied to Daphne (Django + WebSocket)
     location / {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:8889;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
+        proxy_set_header Host $http_host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -139,7 +139,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "  DNS Shield installed successfully!"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "  Access:  http://$IP"
+echo "  Access:  http://$IP:8888"
 echo "  Login:   admin / changeme123"
 echo ""
 echo "  ⚠  IMPORTANT: Change the admin password immediately!"

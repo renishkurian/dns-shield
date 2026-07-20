@@ -189,22 +189,30 @@ export default function QueryLog({ user, initialQueries = [] }) {
 
   const quickBlock = async (domain) => {
     setActing({ domain, type: 'block' })
-    await fetch('/api/blocks/domains', {
+    const res = await fetch('/api/blocks/domains', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
       body: JSON.stringify({ domain, block_type: 'exact', layer: 'proxy', enabled: true }),
     })
     setActing(null)
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      alert(data.domain ? data.domain[0] : 'Failed to block domain.')
+    }
   }
 
   const quickAllow = async (domain) => {
     setActing({ domain, type: 'allow' })
-    await fetch('/api/blocks/allowlist', {
+    const res = await fetch('/api/blocks/allowlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
       body: JSON.stringify({ domain, allow_type: 'exact', enabled: true }),
     })
     setActing(null)
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      alert(data.domain ? data.domain[0] : 'Failed to allow domain.')
+    }
   }
 
   useEffect(() => {
