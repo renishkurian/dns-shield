@@ -101,11 +101,20 @@ class SystemSettingSerializer(serializers.ModelSerializer):
 # ─── Clients ─────────────────────────────────────────────────────────────────
 
 class ClientSerializer(serializers.ModelSerializer):
+    is_active = serializers.SerializerMethodField()
+
     class Meta:
         model = Client
         fields = ['id', 'ip', 'mac', 'name', 'hostname', 'user', 'group', 
-                  'vendor', 'os_hint', 'last_seen', 'nickname', 'device_type', 'icon', 'comment']
+                  'vendor', 'os_hint', 'last_seen', 'nickname', 'device_type', 'icon', 'comment', 'is_active']
         read_only_fields = ['last_seen']
+
+    def get_is_active(self, obj):
+        from django.utils import timezone
+        import datetime
+        if obj.last_seen:
+            return timezone.now() - obj.last_seen < datetime.timedelta(minutes=15)
+        return False
 
 
 # ─── Advanced Features ───────────────────────────────────────────────────────
