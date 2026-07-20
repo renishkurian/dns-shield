@@ -114,12 +114,12 @@ def dashboard(request):
     })
 
 
-def _call_view(ViewClass, request):
+def _call_view(ViewClass, request, *args, **kwargs):
     """Call an APIView's get() method and return the response data."""
     try:
         view = ViewClass()
         view.request = request
-        response = view.get(request)
+        response = view.get(request, *args, **kwargs)
         return response.data
     except Exception:
         return None
@@ -214,7 +214,7 @@ def _network_map_props(request):
 def _client_detail_props(request):
     pk = request.resolver_match.kwargs.get('pk')
     from dns.views import ClientStatsView
-    return _call_view(ClientStatsView, request)
+    return _call_view(ClientStatsView, request, pk=pk)
 
 
 def _schedules_props(request):
