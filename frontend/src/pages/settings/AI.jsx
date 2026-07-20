@@ -17,10 +17,9 @@ export default function AI({ user: currentUser }) {
     fetch('/api/settings')
       .then(r => r.json())
       .then(data => {
-        const d = data.reduce((acc, curr) => ({ ...acc, [curr.key]: curr.value }), {})
-        setEnabled(d.ai_enabled === 'true')
-        setProvider(d.ai_provider || 'openai')
-        setApiKey(d.ai_api_key || '')
+        setEnabled(data.ai_enabled === 'true')
+        setProvider(data.ai_provider || 'openai')
+        setApiKey(data.ai_api_key || '')
       })
   }, [])
 
@@ -29,13 +28,13 @@ export default function AI({ user: currentUser }) {
     setMsg('')
     try {
       await fetch('/api/settings', {
-        method: 'POST',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
-        body: JSON.stringify([
-          { key: 'ai_enabled', value: enabled ? 'true' : 'false' },
-          { key: 'ai_provider', value: provider },
-          { key: 'ai_api_key', value: apiKey },
-        ])
+        body: JSON.stringify({
+          ai_enabled: enabled ? 'true' : 'false',
+          ai_provider: provider,
+          ai_api_key: apiKey
+        })
       })
       setMsg('Settings saved successfully.')
     } finally {
