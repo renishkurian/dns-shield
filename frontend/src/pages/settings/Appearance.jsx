@@ -19,7 +19,8 @@ const hexToRgb = (hex) => {
   return `${r} ${g} ${b}`
 }
 
-export default function Appearance({ user }) {
+// Inner component that renders inside Layout (and therefore inside ToastProvider)
+function AppearanceContent() {
   const [currentTheme, setCurrentTheme] = useState(localStorage.getItem('theme-id') || 'blue')
   const { addToast } = useToast()
 
@@ -53,7 +54,7 @@ export default function Appearance({ user }) {
   }, [])
 
   return (
-    <Layout user={user} currentPath="/settings/appearance" title="Appearance Settings">
+    <>
       <div className="flex flex-col md:flex-row md:items-center gap-4 mb-8">
         <div>
           <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
@@ -116,6 +117,14 @@ export default function Appearance({ user }) {
            </button>
         </div>
       </div>
+    </>
+  )
+}
+
+export default function Appearance({ user }) {
+  return (
+    <Layout user={user} currentPath="/settings/appearance" title="Appearance Settings">
+      <AppearanceContent />
     </Layout>
   )
 }
