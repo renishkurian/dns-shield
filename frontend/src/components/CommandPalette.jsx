@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Search, Globe, Wifi, Settings, Shield, HardDrive, Filter, Activity, Clock, Box, X, Command } from 'lucide-react'
+import { Search, Globe, Wifi, Settings, Shield, HardDrive, Filter, Activity, Clock, Box, X, Command, Bell } from 'lucide-react'
 
 export default function CommandPalette({ isOpen, onClose }) {
   const [query, setQuery] = useState('')
