@@ -4,7 +4,8 @@ import Layout from '../components/Layout'
 import {
   BookOpen, Terminal, Shield, Network, Zap, Sparkles, Users, Search,
   Database, Globe, Wand2, Cpu, Wrench, ClipboardList, Activity, Key,
-  BarChart2, Lock, Eye, HardDrive, Filter, CheckCircle, List, ShieldOff
+  BarChart2, Lock, Eye, HardDrive, Filter, CheckCircle, List, ShieldOff,
+  Clock, Bell, ShieldAlert, Wifi
 } from 'lucide-react'
 
 function Section({ icon: Icon, title, color = 'brand', badge, children }) {

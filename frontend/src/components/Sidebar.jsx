@@ -1,11 +1,11 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import PropTypes from 'prop-types'
-import { router } from '@inertiajs/react'
+import { Link, router } from '@inertiajs/react'
 import {
   LayoutDashboard, List, Shield, Filter, CheckCircle, Globe,
-  Users, Settings, Search, Network, Download, LogOut,
-  ChevronLeft, ChevronRight, Wifi, User, Database, Menu, BookOpen, Sparkles,
-  Wrench, ClipboardList, Activity, Key, ShieldAlert, Clock, Bell, Palette
+  Users, Search, Network, LogOut,
+  ChevronLeft, ChevronRight, Wifi, User, Database, BookOpen, Sparkles,
+  ClipboardList, Activity, Key, ShieldAlert, Clock, Bell, Palette
 } from 'lucide-react'
 import ShieldControl from './ShieldControl'
 
@@ -26,7 +26,7 @@ const navGroups = [
       { label: 'Allowlist', href: '/blocks/allowlist', icon: CheckCircle },
       { label: 'Adlists', href: '/lists', icon: Database },
       { label: 'Threat Intel', href: '/settings/threat-feeds', icon: ShieldAlert },
-      { label: 'Schedules', href: '/blocks/schedules', icon: Clock },
+      { label: 'Schedules', href: '/schedules', icon: Clock },
       { label: 'App Firewall', href: '/blocks/apps', icon: Shield },
     ]
   },
@@ -73,15 +73,25 @@ const adminGroup = {
 
 function NavItem({ item, currentPath, collapsed }) {
   const active = currentPath === item.href || (item.href !== '/' && currentPath?.startsWith(item.href))
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (active && ref.current) {
+      ref.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [active])
+
   return (
-    <button
-      onClick={() => router.visit(item.href)}
-      className={`${active ? 'nav-item-active' : 'nav-item'} w-full ${collapsed ? 'justify-center px-2' : ''}`}
-      title={collapsed ? item.label : undefined}
-    >
-      <item.icon size={18} className="shrink-0" />
-      {!collapsed && <span>{item.label}</span>}
-    </button>
+    <div ref={ref}>
+      <Link
+        href={item.href}
+        className={`${active ? 'nav-item-active' : 'nav-item'} w-full ${collapsed ? 'justify-center px-2' : ''}`}
+        title={collapsed ? item.label : undefined}
+      >
+        <item.icon size={18} className="shrink-0" />
+        {!collapsed && <span>{item.label}</span>}
+      </Link>
+    </div>
   )
 }
 
@@ -166,8 +176,8 @@ export default function Sidebar({ currentPath, user }) {
 
       {/* User + Logout */}
       <div className="p-2 border-t border-slate-700/50 space-y-0.5">
-        <button
-          onClick={() => router.visit('/profile')}
+        <Link
+          href="/profile"
           className={`nav-item w-full ${collapsed ? 'justify-center px-2' : ''}`}
         >
           <div className="w-6 h-6 bg-brand-600/30 rounded-full flex items-center justify-center shrink-0">
@@ -179,7 +189,7 @@ export default function Sidebar({ currentPath, user }) {
               <div className="text-xs text-slate-500 capitalize">{user?.role || 'viewer'}</div>
             </div>
           )}
-        </button>
+        </Link>
         <button
           onClick={handleLogout}
           className={`nav-item w-full text-red-400 hover:text-red-300 hover:bg-red-500/10 ${collapsed ? 'justify-center px-2' : ''}`}

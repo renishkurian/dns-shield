@@ -12,20 +12,27 @@ export default function Allowlist({ user, allowlist: initial = [] }) {
   const [form, setForm] = useState({ domain: '', allow_type: 'exact', comment: '' })
   const [showAdd, setShowAdd] = useState(false)
   const [search, setSearch] = useState('')
+  const [err, setErr] = useState('')
   const isAdmin = user?.role === 'admin'
 
   const save = async () => {
+    setErr('')
+    const payload = { ...form, domain: form.domain.trim().toLowerCase() }
+    if (!payload.domain) { setErr('Domain is required.'); return }
     const res = await fetch('/api/blocks/allowlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
-      body: JSON.stringify(form),
+      body: JSON.stringify(payload),
     })
-    if (res.ok) {
-      const data = await res.json()
-      setItems(i => [data, ...i])
-      setShowAdd(false)
-      setForm({ domain: '', allow_type: 'exact', comment: '' })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      const msg = data.domain?.[0] || data.allow_type?.[0] || data.detail || JSON.stringify(data)
+      setErr(msg)
+      return
     }
+    setItems(i => [data, ...i])
+    setShowAdd(false)
+    setForm({ domain: '', allow_type: 'exact', comment: '' })
   }
 
   const remove = async (id) => {
@@ -53,11 +60,12 @@ export default function Allowlist({ user, allowlist: initial = [] }) {
       {showAdd && isAdmin && (
         <div className="card mb-4 animate-fade-in">
           <h3 className="font-semibold text-white text-sm mb-3">Add to Allowlist</h3>
+          {err && <div className="text-red-400 text-xs mb-3">{err}</div>}
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div>
               <label className="label">Domain</label>
               <input className="input text-xs" placeholder="good.example.com"
-                value={form.domain} onChange={e => setForm(f => ({...f, domain: e.target.value}))} />
+                value={form.domain} onChange={e => { setErr(''); setForm(f => ({...f, domain: e.target.value})) }} />
             </div>
             <div>
               <label className="label">Type</label>

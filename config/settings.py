@@ -150,6 +150,7 @@ UPSTREAM_DNS_PORT = int(os.environ.get('UPSTREAM_DNS_PORT', 5335))
 # REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'dns.authentication.ApiTokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
