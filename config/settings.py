@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'dns-shield-dev-secret-change-in-production')
 
-DEBUG = os.environ.get('DEBUG', 'true').lower() == 'true'
+DEBUG = os.environ.get('DEBUG', 'false').lower() == 'true'
 
 HTTPS = os.environ.get('HTTPS', 'false').lower() == 'true'
 

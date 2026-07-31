@@ -42,6 +42,8 @@ def render_inertia(request, page_name, props):
     Helper to render an Inertia response.
     Returns JSON if X-Inertia header is present, else renders index.html.
     """
+    from django.conf import settings
+    props = {**props, 'debug': bool(settings.DEBUG)}
     page_data = {
         'component': page_name,
         'props': props,

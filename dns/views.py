@@ -1178,7 +1178,12 @@ class UnboundDetectView(APIView):
 
 
 class SeedDataView(APIView):
+    permission_classes = [IsAdminRole]
+
     def post(self, request):
+        from django.conf import settings
+        if not settings.DEBUG:
+            return Response({'error': 'Seed is disabled in production.'}, status=403)
         from django.core.management import call_command
         count = request.data.get('count', 50)
         try:

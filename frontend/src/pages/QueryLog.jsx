@@ -3,9 +3,9 @@ import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
 import { 
   Play, Pause, Download, Shield, Activity, 
-  CheckCircle, XCircle, Search, Trash, 
+  CheckCircle, Search, Trash, 
   Lock, Unlock, Database, ArrowRight,
-  Loader2, RefreshCw, X, Sparkles, ChevronLeft, ChevronRight
+  X, Sparkles, ChevronLeft, ChevronRight
 } from 'lucide-react'
 
 const STATUS_LABELS = {
@@ -20,7 +20,6 @@ const STATUS_LABELS = {
 const BLOCKED_STATUSES = new Set([
   'blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai',
 ])
-
 
 const RESOLUTION_ICONS = {
   'Cache': Database,
@@ -104,7 +103,6 @@ function QueryInspector({ entry, onClose }) {
       </div>
 
       <div className="space-y-4">
-        {/* Technical metadata */}
         <div className="bg-surface-100 rounded-lg p-3 space-y-2 text-[11px]">
           <div className="flex justify-between">
             <span className="text-slate-500">Status</span>
@@ -130,7 +128,7 @@ function QueryInspector({ entry, onClose }) {
           </div>
           <div className="flex justify-between">
             <span className="text-slate-500">Response Time</span>
-            <span className="text-slate-300">{entry.response_time_ms.toFixed(2)} ms</span>
+            <span className="text-slate-300">{entry.response_time_ms?.toFixed(2)} ms</span>
           </div>
           {entry.resolved_ip && (
             <div className="flex justify-between border-t border-slate-700/50 pt-1 mt-1">
@@ -138,9 +136,14 @@ function QueryInspector({ entry, onClose }) {
               <span className="text-slate-300 font-mono truncate ml-4" title={entry.resolved_ip}>{entry.resolved_ip}</span>
             </div>
           )}
+          {result && (
+            <div className="flex justify-between border-t border-slate-700/50 pt-1 mt-1">
+              <span className="text-slate-500">Live match</span>
+              <span className="text-slate-300">{result.result}{result.rule ? ` (${result.rule})` : ''}</span>
+            </div>
+          )}
         </div>
 
-        {/* Action buttons */}
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
             <button onClick={blockDomain} disabled={loading} className="btn-danger flex-1 justify-center text-xs py-1.5">
@@ -158,7 +161,6 @@ function QueryInspector({ entry, onClose }) {
           </a>
         </div>
 
-        {/* AI Analysis section */}
         <div className="pt-2">
           {!aiExplanation ? (
             <button 
@@ -189,7 +191,8 @@ export default function QueryLog({ user, initialQueries = [] }) {
   const [paused, setPaused] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState(null)
   const [filters, setFilters] = useState({ status: '', client: '', domain: '' })
-  const [acting, setActing] = useState(null) // { domain, type }
+  const [draft, setDraft] = useState({ client: '', domain: '' })
+  const [acting, setActing] = useState(null)
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize] = useState(50)
@@ -228,19 +231,11 @@ export default function QueryLog({ user, initialQueries = [] }) {
     }
   }
 
-  useEffect(() => {
-    pausedRef.current = paused
-  }, [paused])
+  useEffect(() => { pausedRef.current = paused }, [paused])
+  useEffect(() => { filtersRef.current = filters }, [filters])
+  useEffect(() => { pageRef.current = page }, [page])
 
-  useEffect(() => {
-    filtersRef.current = filters
-  }, [filters])
-
-  useEffect(() => {
-    pageRef.current = page
-  }, [page])
-
-  const loadPage = async (nextPage = page, nextFilters = filters) => {
+  const loadPage = async (nextPage = 1, nextFilters = filters) => {
     const params = new URLSearchParams()
     if (nextFilters.status) params.set('status', nextFilters.status)
     if (nextFilters.client) params.set('client', nextFilters.client)
@@ -249,7 +244,7 @@ export default function QueryLog({ user, initialQueries = [] }) {
     params.set('page_size', String(pageSize))
     setLoading(true)
     try {
-      const res = await fetch(`/api/queries?${params}`)
+      const res = await fetch(`/api/queries?${params.toString()}`)
       const data = await res.json()
       if (Array.isArray(data?.results)) {
         setEntries(data.results)
@@ -257,10 +252,10 @@ export default function QueryLog({ user, initialQueries = [] }) {
         setTotalPages(data.total_pages || 1)
         setPage(data.page || nextPage)
       } else if (Array.isArray(data)) {
-        // Backward compat if API not yet updated
         setEntries(data)
         setTotal(data.length)
         setTotalPages(1)
+        setPage(1)
       }
     } catch (e) {
       console.error(e)
@@ -268,9 +263,19 @@ export default function QueryLog({ user, initialQueries = [] }) {
     setLoading(false)
   }
 
-  // Reset to page 1 and reload when filters change
+  // Debounce text filters → backend
   useEffect(() => {
-    setPage(1)
+    const t = setTimeout(() => {
+      setFilters(f => {
+        if (f.domain === draft.domain && f.client === draft.client) return f
+        return { ...f, domain: draft.domain.trim(), client: draft.client.trim() }
+      })
+    }, 350)
+    return () => clearTimeout(t)
+  }, [draft.domain, draft.client])
+
+  // Filters change → fetch from API
+  useEffect(() => {
     loadPage(1, filters)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.status, filters.client, filters.domain])
@@ -282,7 +287,6 @@ export default function QueryLog({ user, initialQueries = [] }) {
       wsRef.current = ws
       ws.onmessage = (event) => {
         if (pausedRef.current) return
-        // Only prepend live events on page 1
         if (pageRef.current !== 1) return
         const data = JSON.parse(event.data)
         const f = filtersRef.current
@@ -304,22 +308,15 @@ export default function QueryLog({ user, initialQueries = [] }) {
 
   const goToPage = (p) => {
     const next = Math.min(Math.max(p, 1), totalPages)
-    setPage(next)
     loadPage(next, filters)
   }
 
-  const filtered = entries
-
-  const seedData = async () => {
-    if (!confirm('Seed 50 test queries?')) return
-    setActing({ domain: 'Seeding...', type: 'seed' })
-    const res = await fetch('/api/system/seed-data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
-      body: JSON.stringify({ count: 50 })
-    })
-    setActing(null)
-    if (res.ok) window.location.reload()
+  const applySearch = () => {
+    setFilters(f => ({
+      ...f,
+      domain: draft.domain.trim(),
+      client: draft.client.trim(),
+    }))
   }
 
   const clearLogs = async () => {
@@ -338,54 +335,63 @@ export default function QueryLog({ user, initialQueries = [] }) {
     }
   }
 
-  const exportCsv = () => {
-    window.open('/api/queries/export', '_blank')
-  }
-
   return (
     <Layout user={user} currentPath="/queries" title="Query Log">
-      {/* Controls */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <h2 className="text-xl font-bold text-white">Query Log</h2>
         <div className="flex items-center gap-2 ml-auto flex-wrap">
-          <input className="input w-40 text-xs py-1.5" placeholder="Filter domain…"
-            value={filters.domain} onChange={e => setFilters(f => ({...f, domain: e.target.value}))} />
-          <input className="input w-32 text-xs py-1.5" placeholder="Client IP…"
-            value={filters.client} onChange={e => setFilters(f => ({...f, client: e.target.value}))} />
-          <select className="input w-44 text-xs py-1.5" value={filters.status}
-            onChange={e => setFilters(f => ({...f, status: e.target.value}))}>
+          <input
+            className="input w-40 text-xs py-1.5"
+            placeholder="Filter domain…"
+            value={draft.domain}
+            onChange={e => setDraft(d => ({ ...d, domain: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && applySearch()}
+          />
+          <input
+            className="input w-32 text-xs py-1.5"
+            placeholder="Client IP…"
+            value={draft.client}
+            onChange={e => setDraft(d => ({ ...d, client: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && applySearch()}
+          />
+          <select
+            className="input w-44 text-xs py-1.5"
+            value={filters.status}
+            onChange={e => setFilters(f => ({ ...f, status: e.target.value }))}
+          >
             <option value="">All statuses</option>
             <option value="blocked">All blocked</option>
-            {Object.entries(STATUS_LABELS).map(([v, {label}]) => (
+            {Object.entries(STATUS_LABELS).map(([v, { label }]) => (
               <option key={v} value={v}>{label}</option>
             ))}
           </select>
+          <button className="btn-ghost text-xs" disabled={loading} onClick={applySearch}>
+            <Search size={14} /> {loading ? 'Searching…' : 'Search'}
+          </button>
           <button onClick={() => setPaused(p => !p)} className={paused ? 'btn-success' : 'btn-ghost'}>
             {paused ? <Play size={14} /> : <Pause size={14} />}
             {paused ? 'Resume' : 'Pause'}
           </button>
-          
+
           <div className="h-4 w-px bg-slate-700 mx-2" />
 
-          <button onClick={seedData} className="btn-ghost text-brand-400">
-            <Activity size={14} /> Seed
-          </button>
           <button onClick={clearLogs} className="btn-ghost text-red-400">
             <Trash size={14} /> Clear
           </button>
-
-          <button onClick={exportCsv} className="btn-ghost">
+          <button onClick={() => window.open('/api/queries/export', '_blank')} className="btn-ghost">
             <Download size={14} /> CSV
           </button>
         </div>
       </div>
 
       <div className="flex gap-4">
-        {/* Table */}
-        <div className="flex-1 card overflow-hidden p-0">
-          <div className="overflow-auto max-h-[calc(100vh-220px)]">
+        <div
+          className="flex-1 card overflow-hidden p-0 flex flex-col"
+          style={{ maxHeight: 'calc(100vh - 180px)' }}
+        >
+          <div className="overflow-auto flex-1 min-h-0">
             <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-surface-50 border-b border-slate-700">
+              <thead className="sticky top-0 bg-surface-50 border-b border-slate-700 z-10">
                 <tr className="text-slate-400 font-medium">
                   <th className="text-left px-4 py-3">Time</th>
                   <th className="text-left px-4 py-3">Domain</th>
@@ -398,29 +404,36 @@ export default function QueryLog({ user, initialQueries = [] }) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((e) => {
+                {entries.map((e) => {
                   const s = STATUS_LABELS[e.status] || { label: e.status, cls: 'badge-gray' }
                   const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '—'
                   return (
-                    <tr key={e.id || `${e.timestamp}-${e.domain}-${e.query_type}`} className="table-row-hover border-b border-slate-800/50"
-                        onClick={() => setSelectedEntry(selectedEntry?.id === e.id ? null : e)}>
+                    <tr
+                      key={e.id || `${e.timestamp}-${e.domain}-${e.query_type}`}
+                      className="table-row-hover border-b border-slate-800/50"
+                      onClick={() => setSelectedEntry(selectedEntry?.id === e.id ? null : e)}
+                    >
                       <td className="px-4 py-2 text-slate-500 font-mono whitespace-nowrap">{ts}</td>
-                      <td className="px-4 py-2 font-mono text-slate-200 max-w-xs truncate flex items-center gap-1.5">
-                        {e.dnssec_status === 'SECURE' && <Lock size={12} className="text-green-500" title="DNSSEC: Secure" />}
-                        {e.dnssec_status === 'INSECURE' && <Unlock size={12} className="text-yellow-500" title="DNSSEC: Insecure (not validated)" />}
-                        {e.domain}
+                      <td className="px-4 py-2 font-mono text-slate-200 max-w-xs truncate">
+                        <span className="inline-flex items-center gap-1.5">
+                          {e.dnssec_status === 'SECURE' && <Lock size={12} className="text-green-500" />}
+                          {e.dnssec_status === 'INSECURE' && <Unlock size={12} className="text-yellow-500" />}
+                          {e.domain}
+                        </span>
                       </td>
                       <td className="px-4 py-2 text-slate-500">{e.query_type}</td>
                       <td className="px-4 py-2 text-slate-400 font-mono">{e.client_ip}</td>
-                      <td className="px-4 py-2 flex items-center gap-1.5">
-                        <span className={s.cls}>{s.label}</span>
-                        {e.resolved_by === 'Cache' && <Database size={12} className="text-brand-400" title="Served from Cache" />}
+                      <td className="px-4 py-2">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className={s.cls}>{s.label}</span>
+                          {e.resolved_by === 'Cache' && <Database size={12} className="text-brand-400" />}
+                        </span>
                       </td>
                       <td className="px-4 py-2">
                         <div className="flex items-center gap-1.5 text-slate-500 italic">
                           {(() => {
                             const Icon = RESOLUTION_ICONS[e.resolved_by] || ArrowRight
-                            const text = e.status.startsWith('blocked') ? (e.matched_rule || 'Blocklist') : (e.resolved_by || '—')
+                            const text = e.status?.startsWith('blocked') ? (e.matched_rule || 'Blocklist') : (e.resolved_by || '—')
                             return (
                               <>
                                 <Icon size={12} className="shrink-0" />
@@ -430,21 +443,21 @@ export default function QueryLog({ user, initialQueries = [] }) {
                           })()}
                         </div>
                       </td>
-                                            <td className="px-4 py-2 text-right text-slate-500">
+                      <td className="px-4 py-2 text-right text-slate-500">
                         {e.response_time_ms != null ? e.response_time_ms.toFixed(1) : '—'}
                       </td>
                       <td className="px-4 py-2">
                         <div className="flex items-center justify-center gap-2">
-                          <button 
-                            onClick={(ev) => { ev.stopPropagation(); quickBlock(e.domain); }}
-                            className="p-1 hover:text-red-400 text-slate-600 transition-colors"
+                          <button
+                            onClick={(ev) => { ev.stopPropagation(); quickBlock(e.domain) }}
+                            className="p-1 hover:text-red-400 text-slate-600"
                             title="Quick Block"
                           >
                             <Shield size={14} className={acting?.domain === e.domain && acting?.type === 'block' ? 'animate-spin' : ''} />
                           </button>
-                          <button 
-                            onClick={(ev) => { ev.stopPropagation(); quickAllow(e.domain); }}
-                            className="p-1 hover:text-green-400 text-slate-600 transition-colors"
+                          <button
+                            onClick={(ev) => { ev.stopPropagation(); quickAllow(e.domain) }}
+                            className="p-1 hover:text-green-400 text-slate-600"
                             title="Quick Allow"
                           >
                             <CheckCircle size={14} className={acting?.domain === e.domain && acting?.type === 'allow' ? 'animate-spin' : ''} />
@@ -456,7 +469,7 @@ export default function QueryLog({ user, initialQueries = [] }) {
                 })}
               </tbody>
             </table>
-            {!filtered.length && (
+            {!entries.length && (
               <div className="text-center py-12 text-slate-600">
                 {loading
                   ? 'Loading…'
@@ -468,23 +481,29 @@ export default function QueryLog({ user, initialQueries = [] }) {
               </div>
             )}
           </div>
-          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-700/80 bg-surface-50/50">
-            <p className="text-[11px] text-slate-500">
-              {total.toLocaleString()} total
-              {total > 0 && (
-                <> · page {page} of {totalPages}</>
+
+          <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-700 bg-surface-50">
+            <p className="text-[11px] text-slate-400">
+              {loading ? 'Loading…' : (
+                <>
+                  <span className="text-white font-medium">{total.toLocaleString()}</span> total
+                  {total > 0 && <> · page <span className="text-white font-medium">{page}</span> of {totalPages}</>}
+                  {(filters.domain || filters.client || filters.status) && (
+                    <span className="text-brand-400"> · filtered</span>
+                  )}
+                </>
               )}
             </p>
             <div className="flex items-center gap-2">
               <button
-                className="btn-ghost text-xs py-1 px-2 disabled:opacity-40"
+                className="btn-ghost text-xs py-1.5 px-3 disabled:opacity-40"
                 disabled={loading || page <= 1}
                 onClick={() => goToPage(page - 1)}
               >
                 <ChevronLeft size={14} /> Prev
               </button>
               <button
-                className="btn-ghost text-xs py-1 px-2 disabled:opacity-40"
+                className="btn-ghost text-xs py-1.5 px-3 disabled:opacity-40"
                 disabled={loading || page >= totalPages}
                 onClick={() => goToPage(page + 1)}
               >
@@ -494,11 +513,10 @@ export default function QueryLog({ user, initialQueries = [] }) {
           </div>
         </div>
 
-        {/* Side panel */}
         {selectedEntry && (
-          <QueryInspector 
-            entry={selectedEntry} 
-            onClose={() => setSelectedEntry(null)} 
+          <QueryInspector
+            entry={selectedEntry}
+            onClose={() => setSelectedEntry(null)}
           />
         )}
       </div>
