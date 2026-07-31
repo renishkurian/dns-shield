@@ -65,6 +65,7 @@ class Client(models.Model):
     group = models.ForeignKey('blocks.BlockGroup', on_delete=models.SET_NULL, null=True, blank=True, related_name='clients')
     vendor = models.CharField(max_length=100, blank=True)
     os_hint = models.CharField(max_length=100, blank=True)
+    open_ports = models.CharField(max_length=255, blank=True)
     last_seen = models.DateTimeField(null=True, blank=True)
     nickname = models.CharField(max_length=100, blank=True)
     device_type = models.CharField(max_length=20, default='other')

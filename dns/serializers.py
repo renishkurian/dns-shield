@@ -106,7 +106,7 @@ class ClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Client
         fields = ['id', 'ip', 'mac', 'name', 'hostname', 'user', 'group', 
-                  'vendor', 'os_hint', 'last_seen', 'nickname', 'device_type', 'icon',
+                  'vendor', 'os_hint', 'open_ports', 'last_seen', 'nickname', 'device_type', 'icon',
                   'comment', 'is_blocked', 'is_active']
         read_only_fields = ['last_seen']
 

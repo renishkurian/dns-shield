@@ -1161,15 +1161,25 @@ class UserForceLogoutView(APIView):
 class NetworkScanView(APIView):
     permission_classes = [IsAdminRole]
 
+    def get(self, request):
+        from dns.network_scanner import get_scan_status
+        return Response(get_scan_status())
+
     def post(self, request):
-        from dns.network_scanner import run_network_scan
+        from dns.network_scanner import run_network_scan, get_scan_status
         import threading
-        
+
+        status = get_scan_status()
+        if status.get('running'):
+            return Response({'ok': True, 'message': 'Scan already running.', **status})
+
+        deep = str(request.data.get('deep', '1')).lower() not in ('0', 'false', 'no')
+
         def run():
-            run_network_scan()
-            
+            run_network_scan(deep=deep)
+
         threading.Thread(target=run, daemon=True).start()
-        return Response({'ok': True, 'message': 'Scan started in background.'})
+        return Response({'ok': True, 'message': 'Scan started in background.', 'deep': deep})
 
 
 # ─── SYSTEM STATUS ────────────────────────────────────────────────────────────
