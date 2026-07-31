@@ -34,13 +34,14 @@ const navGroups = [
     label: 'Network',
     items: [
       { label: 'Clients', href: '/clients', icon: Wifi },
+      { label: 'Local DNS', href: '/local-dns', icon: Globe },
       { label: 'Safe Search', href: '/safesearch', icon: Search },
     ]
   },
   {
     label: 'Settings',
     items: [
-      { label: 'DNS Config', href: '/settings/dns', icon: Globe },
+      { label: 'DNS Config', href: '/settings/dns', icon: Network },
       { label: 'Alerts', href: '/settings/alerts', icon: Bell },
       { label: 'Appearance', href: '/settings/appearance', icon: Palette },
       { label: 'AI Integrations', href: '/settings/ai', icon: Sparkles },

@@ -72,6 +72,11 @@ class Client(models.Model):
     icon = models.CharField(max_length=50, blank=True)
     comment = models.TextField(blank=True)
     is_blocked = models.BooleanField(default=False, db_index=True)
+    shield_bypass = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text='When true, DNS Shield filtering is fully disabled for this client IP',
+    )
 
     def __str__(self):
         return self.name or self.hostname or self.ip
@@ -196,3 +201,37 @@ class DomainTrust(models.Model):
 
     def __str__(self):
         return f'{self.domain} ({self.trust_score})'
+
+
+class LocalDnsRecord(models.Model):
+    """Pi-hole-style local A/AAAA record: domain → IP."""
+    domain = models.CharField(max_length=255, unique=True, db_index=True)
+    ip = models.GenericIPAddressField()
+    ttl = models.PositiveIntegerField(default=300)
+    comment = models.CharField(max_length=255, blank=True)
+    enabled = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['domain']
+
+    def __str__(self):
+        return f'{self.domain} → {self.ip}'
+
+
+class LocalCnameRecord(models.Model):
+    """Pi-hole-style local CNAME: domain → target domain."""
+    domain = models.CharField(max_length=255, unique=True, db_index=True)
+    target = models.CharField(max_length=255)
+    ttl = models.PositiveIntegerField(default=300)
+    comment = models.CharField(max_length=255, blank=True)
+    enabled = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['domain']
+
+    def __str__(self):
+        return f'{self.domain} → {self.target}'

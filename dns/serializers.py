@@ -5,7 +5,8 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from dns.models import (
     QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer,
-    ScheduledRule, AlertConfig, SystemEvent, AIUsageLog, DomainTrust
+    ScheduledRule, AlertConfig, SystemEvent, AIUsageLog, DomainTrust,
+    LocalDnsRecord, LocalCnameRecord,
 )
 from blocks.models import BlockedDomain, Pattern, Adlist, GravityDomain, AllowedDomain, BlockGroup, AppCategory, AppControl
 from users.models import UserProfile
@@ -90,6 +91,59 @@ class SafeSearchSerializer(serializers.ModelSerializer):
         fields = ['id', 'engine', 'enabled', 'level']
 
 
+class LocalDnsRecordSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LocalDnsRecord
+        fields = ['id', 'domain', 'ip', 'ttl', 'comment', 'enabled', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
+
+    def validate_domain(self, value):
+        domain = (value or '').strip().lower().rstrip('.')
+        if not domain or ' ' in domain:
+            raise serializers.ValidationError('Enter a valid domain name.')
+        return domain
+
+    def validate_ttl(self, value):
+        if value is None:
+            return 300
+        if value < 0 or value > 86400:
+            raise serializers.ValidationError('TTL must be between 0 and 86400.')
+        return value
+
+
+class LocalCnameRecordSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LocalCnameRecord
+        fields = ['id', 'domain', 'target', 'ttl', 'comment', 'enabled', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
+
+    def validate_domain(self, value):
+        domain = (value or '').strip().lower().rstrip('.')
+        if not domain or ' ' in domain:
+            raise serializers.ValidationError('Enter a valid domain name.')
+        return domain
+
+    def validate_target(self, value):
+        target = (value or '').strip().lower().rstrip('.')
+        if not target or ' ' in target:
+            raise serializers.ValidationError('Enter a valid target domain.')
+        return target
+
+    def validate_ttl(self, value):
+        if value is None:
+            return 300
+        if value < 0 or value > 86400:
+            raise serializers.ValidationError('TTL must be between 0 and 86400.')
+        return value
+
+    def validate(self, attrs):
+        domain = attrs.get('domain') or getattr(self.instance, 'domain', '')
+        target = attrs.get('target') or getattr(self.instance, 'target', '')
+        if domain and target and domain == target:
+            raise serializers.ValidationError({'target': 'CNAME target cannot be the same as the domain.'})
+        return attrs
+
+
 # ─── Settings ────────────────────────────────────────────────────────────────
 
 class SystemSettingSerializer(serializers.ModelSerializer):
@@ -107,7 +161,7 @@ class ClientSerializer(serializers.ModelSerializer):
         model = Client
         fields = ['id', 'ip', 'mac', 'name', 'hostname', 'user', 'group', 
                   'vendor', 'os_hint', 'open_ports', 'last_seen', 'nickname', 'device_type', 'icon',
-                  'comment', 'is_blocked', 'is_active']
+                  'comment', 'is_blocked', 'shield_bypass', 'is_active']
         read_only_fields = ['last_seen']
 
     def get_is_active(self, obj):

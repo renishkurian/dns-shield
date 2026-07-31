@@ -178,6 +178,15 @@ def _safesearch_props(request):
     return {'safesearch': SafeSearchSerializer(SafeSearch.objects.all(), many=True).data}
 
 
+def _local_dns_props(request):
+    from dns.models import LocalDnsRecord, LocalCnameRecord
+    from dns.serializers import LocalDnsRecordSerializer, LocalCnameRecordSerializer
+    return {
+        'records': LocalDnsRecordSerializer(LocalDnsRecord.objects.all(), many=True).data,
+        'cnames': LocalCnameRecordSerializer(LocalCnameRecord.objects.all(), many=True).data,
+    }
+
+
 def _clients_props(request):
     from dns.serializers import ClientSerializer
     return {'clients': ClientSerializer(Client.objects.all(), many=True).data}
@@ -286,6 +295,7 @@ blocks_patterns_view = inertia_page('blocks/Patterns', _patterns_props)(lambda r
 blocks_allowlist_view = inertia_page('blocks/Allowlist', _allowlist_props)(lambda r: None)
 lists_view = inertia_page('Lists', _lists_props)(lambda r: None)
 safesearch_view = inertia_page('SafeSearch', _safesearch_props)(lambda r: None)
+local_dns_view = inertia_page('LocalDNS', _local_dns_props)(lambda r: None)
 clients_view = inertia_page('Clients', _clients_props)(lambda r: None)
 settings_dns_view = inertia_page('settings/DNS')(lambda r: None)
 settings_network_view = inertia_page('settings/Network')(lambda r: None)

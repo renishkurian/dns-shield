@@ -46,6 +46,12 @@ urlpatterns = [
     # SafeSearch
     path('safesearch', views.SafeSearchView.as_view()),
 
+    # Local DNS
+    path('local-dns', views.LocalDnsRecordListView.as_view()),
+    path('local-dns/<int:pk>', views.LocalDnsRecordDetailView.as_view()),
+    path('local-cname', views.LocalCnameRecordListView.as_view()),
+    path('local-cname/<int:pk>', views.LocalCnameRecordDetailView.as_view()),
+
     # Clients
     path('clients', views.ClientView.as_view()),
     path('clients/<int:pk>', views.ClientDetailView.as_view()),

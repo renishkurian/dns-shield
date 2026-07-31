@@ -27,7 +27,7 @@ class DNSShieldResolver(BaseResolver):
         qtype = dnslib.QTYPE[request.q.qtype]
         client_ip = handler.client_address[0]
 
-        # 0. Check Shield Status
+        # 0. Check Shield Status (global)
         from dns.shield import is_shield_active
         if not is_shield_active():
             reply = forwarder.forward(request, self.upstream_host, self.upstream_port)
@@ -40,6 +40,18 @@ class DNSShieldResolver(BaseResolver):
                        resolved_ip=resolved_ip, resolved_by=f"{self.upstream_host} (Shield Off)")
             return reply
 
+        # 0.04 Per-client shield bypass — forward everything for this IP
+        if _is_client_bypassed(client_ip):
+            reply = forwarder.forward(request, self.upstream_host, self.upstream_port)
+            elapsed = (time.monotonic() - start) * 1000
+            resolved_ip = _extract_ip(reply)
+            dns_logger.log_query(domain, client_ip, 'allowed', qtype,
+                                 response_time_ms=elapsed, resolved_ip=resolved_ip,
+                                 resolved_by=f"{self.upstream_host} (Client Bypass)", ttl=_get_min_ttl(reply))
+            _broadcast(domain, client_ip, 'allowed', qtype, 'Client shield bypass', elapsed,
+                       resolved_ip=resolved_ip, resolved_by=f"{self.upstream_host} (Client Bypass)")
+            return reply
+
         # 0.05 Full client ban — block all DNS for this IP
         if _is_client_blocked(client_ip):
             elapsed = (time.monotonic() - start) * 1000
@@ -50,6 +62,20 @@ class DNSShieldResolver(BaseResolver):
                        resolved_by='Blocked (Client)')
             reply = request.reply()
             reply.header.rcode = dnslib.RCODE.NXDOMAIN
+            return reply
+
+        # 0.06 Local DNS / CNAME (authoritative for configured names)
+        from dns_proxy.local_dns import get_local_dns
+        local = get_local_dns().resolve(request)
+        if local is not None:
+            reply, resolved_ip, source = local
+            elapsed = (time.monotonic() - start) * 1000
+            ttl = _get_min_ttl(reply) if reply.rr else 0
+            dns_logger.log_query(domain, client_ip, 'allowed', qtype,
+                                 response_time_ms=elapsed, resolved_ip=resolved_ip,
+                                 resolved_by=source, ttl=ttl)
+            _broadcast(domain, client_ip, 'allowed', qtype, source, elapsed,
+                       resolved_ip=resolved_ip, resolved_by=source, ttl=ttl)
             return reply
 
         # 0.1 Check Cache
@@ -157,6 +183,11 @@ _blocked_clients_cache = {
     'last_check': 0,
 }
 
+_bypass_clients_cache = {
+    'ips': set(),
+    'last_check': 0,
+}
+
 
 def _is_client_blocked(client_ip: str) -> bool:
     """Return True if this client IP is fully DNS-banned. Refreshes every 5s."""
@@ -171,6 +202,21 @@ def _is_client_blocked(client_ip: str) -> bool:
             logger.error(f"Failed to refresh blocked clients: {exc}")
         _blocked_clients_cache['last_check'] = now
     return client_ip in _blocked_clients_cache['ips']
+
+
+def _is_client_bypassed(client_ip: str) -> bool:
+    """Return True if DNS Shield filtering is disabled for this client IP."""
+    now = time.time()
+    if now - _bypass_clients_cache['last_check'] >= 5:
+        try:
+            from dns.models import Client
+            _bypass_clients_cache['ips'] = set(
+                Client.objects.filter(shield_bypass=True).values_list('ip', flat=True)
+            )
+        except Exception as exc:
+            logger.error(f"Failed to refresh bypass clients: {exc}")
+        _bypass_clients_cache['last_check'] = now
+    return client_ip in _bypass_clients_cache['ips']
 
 
 def _resolve_identity(client_ip: str) -> int | None:

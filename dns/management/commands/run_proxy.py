@@ -69,6 +69,11 @@ class Command(BaseCommand):
             if token is not None and token != last_token:
                 self.stdout.write('Rules changed — reloading matcher…')
                 matcher.reload()
+                try:
+                    from dns_proxy.local_dns import reload_local_dns
+                    reload_local_dns()
+                except Exception as exc:
+                    self.stderr.write(f'Local DNS reload failed: {exc}')
                 last_token = token
 
         proxy.stop_proxy()

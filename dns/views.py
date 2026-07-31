@@ -22,7 +22,8 @@ from rest_framework.views import APIView
 
 from dns.models import (
     QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer,
-    ScheduledRule, AlertConfig, SystemEvent, AIUsageLog, DomainTrust
+    ScheduledRule, AlertConfig, SystemEvent, AIUsageLog, DomainTrust,
+    LocalDnsRecord, LocalCnameRecord,
 )
 from dns.permissions import IsAdminRole
 from dns.serializers import (
@@ -32,7 +33,8 @@ from dns.serializers import (
     BlockGroupSerializer, VPNServerSerializer, VPNPeerSerializer,
     AppCategorySerializer, AppControlSerializer,
     ScheduledRuleSerializer, AlertConfigSerializer, SystemEventSerializer,
-    AIUsageLogSerializer, DomainTrustSerializer
+    AIUsageLogSerializer, DomainTrustSerializer,
+    LocalDnsRecordSerializer, LocalCnameRecordSerializer,
 )
 
 class AIUsageLogListView(APIView):
@@ -815,6 +817,124 @@ class SafeSearchView(APIView):
         return Response(ser.errors, status=400)
 
 
+# ─── LOCAL DNS (A/AAAA + CNAME) ───────────────────────────────────────────────
+
+class LocalDnsRecordListView(APIView):
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated()]
+        return [IsAdminRole()]
+
+    def get(self, request):
+        return Response(LocalDnsRecordSerializer(LocalDnsRecord.objects.all(), many=True).data)
+
+    def post(self, request):
+        ser = LocalDnsRecordSerializer(data=request.data)
+        if ser.is_valid():
+            domain = ser.validated_data['domain']
+            if LocalCnameRecord.objects.filter(domain=domain).exists():
+                return Response(
+                    {'domain': ['A CNAME already exists for this domain. Remove it first.']},
+                    status=400,
+                )
+            obj, _ = LocalDnsRecord.objects.update_or_create(
+                domain=domain,
+                defaults={k: v for k, v in ser.validated_data.items() if k != 'domain'},
+            )
+            _reload_matcher()
+            return Response(LocalDnsRecordSerializer(obj).data, status=201)
+        return Response(ser.errors, status=400)
+
+
+class LocalDnsRecordDetailView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def patch(self, request, pk):
+        try:
+            obj = LocalDnsRecord.objects.get(pk=pk)
+        except LocalDnsRecord.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+        ser = LocalDnsRecordSerializer(obj, data=request.data, partial=True)
+        if ser.is_valid():
+            domain = ser.validated_data.get('domain', obj.domain)
+            if LocalCnameRecord.objects.filter(domain=domain).exclude(pk=obj.pk).exists():
+                return Response(
+                    {'domain': ['A CNAME already exists for this domain.']},
+                    status=400,
+                )
+            ser.save()
+            _reload_matcher()
+            return Response(ser.data)
+        return Response(ser.errors, status=400)
+
+    def delete(self, request, pk):
+        try:
+            obj = LocalDnsRecord.objects.get(pk=pk)
+        except LocalDnsRecord.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+        obj.delete()
+        _reload_matcher()
+        return Response(status=204)
+
+
+class LocalCnameRecordListView(APIView):
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated()]
+        return [IsAdminRole()]
+
+    def get(self, request):
+        return Response(LocalCnameRecordSerializer(LocalCnameRecord.objects.all(), many=True).data)
+
+    def post(self, request):
+        ser = LocalCnameRecordSerializer(data=request.data)
+        if ser.is_valid():
+            domain = ser.validated_data['domain']
+            if LocalDnsRecord.objects.filter(domain=domain).exists():
+                return Response(
+                    {'domain': ['An A/AAAA record already exists for this domain. Remove it first.']},
+                    status=400,
+                )
+            obj, _ = LocalCnameRecord.objects.update_or_create(
+                domain=domain,
+                defaults={k: v for k, v in ser.validated_data.items() if k != 'domain'},
+            )
+            _reload_matcher()
+            return Response(LocalCnameRecordSerializer(obj).data, status=201)
+        return Response(ser.errors, status=400)
+
+
+class LocalCnameRecordDetailView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def patch(self, request, pk):
+        try:
+            obj = LocalCnameRecord.objects.get(pk=pk)
+        except LocalCnameRecord.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+        ser = LocalCnameRecordSerializer(obj, data=request.data, partial=True)
+        if ser.is_valid():
+            domain = ser.validated_data.get('domain', obj.domain)
+            if LocalDnsRecord.objects.filter(domain=domain).exclude(pk=obj.pk).exists():
+                return Response(
+                    {'domain': ['An A/AAAA record already exists for this domain.']},
+                    status=400,
+                )
+            ser.save()
+            _reload_matcher()
+            return Response(ser.data)
+        return Response(ser.errors, status=400)
+
+    def delete(self, request, pk):
+        try:
+            obj = LocalCnameRecord.objects.get(pk=pk)
+        except LocalCnameRecord.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+        obj.delete()
+        _reload_matcher()
+        return Response(status=204)
+
+
 # ─── CLIENTS ──────────────────────────────────────────────────────────────────
 
 class ClientView(APIView):
@@ -846,10 +966,17 @@ class ClientDetailView(APIView):
         except Client.DoesNotExist:
             return Response({'error': 'Not found'}, status=404)
         ser = ClientSerializer(obj, data=request.data, partial=True)
-        if ser.is_valid():
-            ser.save()
-            return Response(ser.data)
-        return Response(ser.errors, status=400)
+        if not ser.is_valid():
+            return Response(ser.errors, status=400)
+        obj = ser.save()
+        # Bypass and full-block are mutually exclusive
+        if obj.shield_bypass and obj.is_blocked:
+            if 'shield_bypass' in request.data and request.data.get('shield_bypass') in (True, 'true', '1', 1):
+                obj.is_blocked = False
+            else:
+                obj.shield_bypass = False
+            obj.save(update_fields=['is_blocked', 'shield_bypass'])
+        return Response(ClientSerializer(obj).data)
 
 
 # ─── SETTINGS ─────────────────────────────────────────────────────────────────
@@ -2013,5 +2140,11 @@ def _reload_matcher():
         from dns_proxy.matcher import get_matcher
         import threading
         threading.Thread(target=get_matcher().reload, daemon=True).start()
+    except Exception:
+        pass
+    try:
+        from dns_proxy.local_dns import reload_local_dns
+        import threading
+        threading.Thread(target=reload_local_dns, daemon=True).start()
     except Exception:
         pass
