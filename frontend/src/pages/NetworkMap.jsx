@@ -108,9 +108,12 @@ export default function NetworkMap({ user: currentUser, clients: initialClients 
                    <User size={10} />
                    <span>{c.group_name || 'Global'}</span>
                 </div>
-                <button className="text-[10px] font-bold text-brand-400 hover:text-brand-300 uppercase tracking-wider">
+                <a
+                  href={`/clients/${c.id}`}
+                  className="text-[10px] font-bold text-brand-400 hover:text-brand-300 uppercase tracking-wider"
+                >
                   Manage
-                </button>
+                </a>
               </div>
             </div>
           )
