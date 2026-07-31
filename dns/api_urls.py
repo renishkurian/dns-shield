@@ -84,6 +84,8 @@ urlpatterns = [
     # AI Integration
     path('ai/explain', views.AIExplainView.as_view()),
     path('ai/generate-app', views.AIGenerateAppView.as_view()),
+    path('ai/claude-accounts', views.ClaudeBrowserAccountListView.as_view()),
+    path('ai/claude-accounts/<str:account_id>', views.ClaudeBrowserAccountDetailView.as_view()),
 
     # System
     path('system/status', views.SystemStatusView.as_view()),

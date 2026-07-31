@@ -809,6 +809,59 @@ class AIExplainView(APIView):
             return Response({'error': str(e)}, status=500)
 
 
+class ClaudeBrowserAccountListView(APIView):
+    """CRUD list for Claude.ai browser-wrapper accounts (sessionKey + org_id)."""
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        from dns.ai_service import get_claude_browser_accounts
+        accounts = get_claude_browser_accounts()
+        # Mask session keys in list responses
+        safe = []
+        for a in accounts:
+            sk = a.get('session_key') or ''
+            safe.append({
+                **a,
+                'session_key_masked': (sk[:12] + '…') if len(sk) > 12 else ('***' if sk else ''),
+                'has_session_key': bool(sk),
+            })
+        return Response(safe)
+
+    def post(self, request):
+        from dns.ai_service import upsert_claude_account
+        try:
+            account = upsert_claude_account(request.data)
+            return Response(account, status=201)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=400)
+
+
+class ClaudeBrowserAccountDetailView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def patch(self, request, account_id):
+        from dns.ai_service import upsert_claude_account, get_claude_browser_accounts
+        data = dict(request.data)
+        # Keep existing session_key if client sent blank (masked edit)
+        if not (data.get('session_key') or '').strip():
+            existing = next((a for a in get_claude_browser_accounts() if a.get('id') == account_id), None)
+            if existing:
+                data['session_key'] = existing.get('session_key', '')
+        try:
+            account = upsert_claude_account(data, account_id=account_id)
+            return Response(account)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=400)
+
+    def delete(self, request, account_id):
+        from dns.ai_service import delete_claude_account
+        try:
+            delete_claude_account(account_id)
+            return Response(status=204)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=404)
+
+
 # ─── NETWORK / IPTABLES ───────────────────────────────────────────────────────
 
 IPTABLES_RULES = {

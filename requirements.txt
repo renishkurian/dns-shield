@@ -11,3 +11,7 @@ redis==5.0.7
 whitenoise==6.7.0
 Pillow==10.4.0
 apscheduler==3.10.4
+openai>=1.40.0
+anthropic>=0.34.0
+google-generativeai>=0.7.0
+curl_cffi>=0.7.0

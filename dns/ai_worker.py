@@ -21,7 +21,7 @@ logger = logging.getLogger('dns.ai_worker')
 
 def run_profiler():
     """Run the AI behavioral profiler over recent DNS queries."""
-    enabled, provider, api_key = get_ai_config()
+    enabled, provider, api_key, _model = get_ai_config()
     if not enabled:
         logger.info("Smart AI is disabled. Skipping profiling.")
         return
