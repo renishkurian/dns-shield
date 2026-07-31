@@ -5,39 +5,40 @@ import PropTypes from 'prop-types'
  * A premium, SVG-based doughnut chart with high-DPI support and minimal overhead.
  */
 export default function DoughnutChart({ data = [], size = 160, thickness = 24 }) {
-  const total = useMemo(() => data.reduce((acc, d) => acc + d.count, 0), [data])
-  
+  const rows = Array.isArray(data) ? data : []
+  const total = useMemo(() => rows.reduce((acc, d) => acc + (d.count || 0), 0), [rows])
+
   const center = size / 2
   const radius = (size - thickness) / 2
   const circumference = 2 * Math.PI * radius
 
   const segments = useMemo(() => {
     let currentOffset = 0
-    return data.map((d, i) => {
+    return rows.map((d, i) => {
       const share = d.count / (total || 1)
       const strokeLength = share * circumference
       const offset = currentOffset
       currentOffset += strokeLength
-      
+
       // Compute color in JS to avoid CSS calc() pitfalls
-      // Use the global brand hue (default 200) + rotation
+      // Use the global brand hue (default 200) + offset
       const hue = (200 + (i * 45)) % 360
       const color = d.color || `hsl(${hue}, 60%, 50%)`
-      
+
       return { ...d, strokeLength, offset, color }
     })
-  }, [data, total, circumference])
+  }, [rows, total, circumference])
 
   return (
     <div className="flex flex-col sm:flex-row items-center gap-10">
       <div className="relative shrink-0" style={{ width: size, height: size }}>
-        <svg 
+        <svg
           width={size} height={size} viewBox={`0 0 ${size} ${size}`}
           className="-rotate-90 transform" // Start from top
         >
           {/* Background track */}
-          <circle 
-            cx={center} cy={center} r={radius} 
+          <circle
+            cx={center} cy={center} r={radius}
             fill="none" stroke="currentColor" strokeWidth={thickness}
             className="text-slate-800"
           />
@@ -70,7 +71,7 @@ export default function DoughnutChart({ data = [], size = 160, thickness = 24 })
           return (
             <div key={i} className="flex items-center justify-between text-[11px] group cursor-pointer hover:bg-white/5 p-1 px-2 rounded-lg transition-colors">
               <div className="flex items-center gap-3 truncate">
-                <div 
+                <div
                   className="w-3.5 h-3.5 rounded border border-white/10 flex items-center justify-center shrink-0 transition-all group-hover:border-white/20 shadow-inner"
                   style={{ backgroundColor: `${d.color}20` }}
                 >

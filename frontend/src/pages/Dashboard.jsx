@@ -456,7 +456,7 @@ export default function Dashboard({ user, summary: initialSummary, hourly: initi
         <FrequencyTable title="Top Allowed Domains" data={stats.topAllowedDomains} color="blue" />
         <FrequencyTable
           title="Top Clients"
-          data={stats.topClients.map(c => ({
+          data={(stats.topClients || []).map(c => ({
             domain: c.name || c.client_ip,
             count: c.count,
             href: `/queries?client=${encodeURIComponent(c.client_ip)}`,

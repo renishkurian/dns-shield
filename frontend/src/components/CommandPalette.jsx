@@ -26,9 +26,11 @@ export default function CommandPalette({ isOpen, onClose }) {
       setLoading(true)
       try {
         const res = await fetch(`/api/system/global-search?q=${encodeURIComponent(query)}`)
-        const data = await res.json()
-        setResults(data)
+        const data = await res.json().catch(() => [])
+        setResults(Array.isArray(data) ? data : [])
         setActiveIndex(0)
+      } catch {
+        setResults([])
       } finally {
         setLoading(false)
       }
@@ -43,9 +45,11 @@ export default function CommandPalette({ isOpen, onClose }) {
 
       if (e.key === 'ArrowDown') {
         e.preventDefault()
+        if (!results.length) return
         setActiveIndex(prev => (prev + 1) % results.length)
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
+        if (!results.length) return
         setActiveIndex(prev => (prev - 1 + results.length) % results.length)
       } else if (e.key === 'Enter' && results[activeIndex]) {
         e.preventDefault()
@@ -59,6 +63,8 @@ export default function CommandPalette({ isOpen, onClose }) {
   }, [isOpen, results, activeIndex, onClose])
 
   if (!isOpen) return null
+
+  const safeResults = Array.isArray(results) ? results : []
 
   const getIcon = (type) => {
     switch(type) {
@@ -114,9 +120,9 @@ export default function CommandPalette({ isOpen, onClose }) {
             </div>
           )}
 
-          {results.length > 0 && (
+          {safeResults.length > 0 && (
             <div className="space-y-1">
-              {results.map((res, i) => {
+              {safeResults.map((res, i) => {
                 const Icon = getIcon(res.type)
                 return (
                   <div
@@ -141,7 +147,7 @@ export default function CommandPalette({ isOpen, onClose }) {
             </div>
           )}
 
-          {query.length >= 2 && !loading && results.length === 0 && (
+          {query.length >= 2 && !loading && safeResults.length === 0 && (
             <div className="p-12 text-center">
               <div className="w-12 h-12 rounded-2xl bg-slate-800/50 flex items-center justify-center text-slate-700 mx-auto mb-4">
                 <Box size={24} />

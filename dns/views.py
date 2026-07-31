@@ -1789,28 +1789,57 @@ class GlobalSearchView(APIView):
         q = request.query_params.get('q', '').strip()
         if not q or len(q) < 2:
             return Response([])
-        
+
         results = []
-        # Search Clients
-        clients = Client.objects.filter(Q(ip__icontains=q) | Q(name__icontains=q) | Q(hostname__icontains=q))[:5]
-        for c in clients:
-            results.append({'type': 'client', 'id': c.id, 'label': c.name or c.hostname or c.ip, 'sub': c.ip, 'href': f'/clients/{c.id}'})
-        
-        # Search Patterns
-        patterns = Pattern.objects.filter(Q(name__icontains=q) | Q(pattern__icontains=q))[:5]
-        for p in patterns:
-            results.append({'type': 'pattern', 'id': p.id, 'label': p.name, 'sub': p.pattern, 'href': '/blocks/patterns'})
-        
-        # Search Blocked Domains
-        domains = BlockedDomain.objects.filter(domain__icontains=q)[:5]
-        for d in domains:
-            results.append({'type': 'domain', 'id': d.id, 'label': d.domain, 'sub': 'Blocked Domain', 'href': '/blocks/domains'})
-        
-        # Search App categories
-        apps = AppCategory.objects.filter(name__icontains=q)[:3]
-        for a in apps:
-            results.append({'type': 'app', 'id': a.id, 'label': a.name, 'sub': 'App Category', 'href': '/blocks/apps'})
-            
+        try:
+            # Search Clients
+            clients = Client.objects.filter(
+                Q(ip__icontains=q) | Q(name__icontains=q) | Q(hostname__icontains=q) | Q(nickname__icontains=q)
+            )[:5]
+            for c in clients:
+                results.append({
+                    'type': 'client',
+                    'id': c.id,
+                    'label': c.nickname or c.name or c.hostname or c.ip,
+                    'sub': c.ip,
+                    'href': f'/clients/{c.id}',
+                })
+
+            # Search Patterns
+            patterns = Pattern.objects.filter(Q(name__icontains=q) | Q(pattern__icontains=q))[:5]
+            for p in patterns:
+                results.append({
+                    'type': 'pattern',
+                    'id': p.id,
+                    'label': p.name,
+                    'sub': p.pattern,
+                    'href': '/blocks/patterns',
+                })
+
+            # Search Blocked Domains
+            domains = BlockedDomain.objects.filter(domain__icontains=q)[:5]
+            for d in domains:
+                results.append({
+                    'type': 'domain',
+                    'id': d.id,
+                    'label': d.domain,
+                    'sub': 'Blocked Domain',
+                    'href': '/blocks/domains',
+                })
+
+            # Search App categories
+            apps = AppCategory.objects.filter(name__icontains=q)[:3]
+            for a in apps:
+                results.append({
+                    'type': 'app',
+                    'id': a.id,
+                    'label': a.name,
+                    'sub': 'App Category',
+                    'href': '/blocks/apps',
+                })
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=500)
+
         return Response(results)
 
 

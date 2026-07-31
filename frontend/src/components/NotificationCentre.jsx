@@ -16,8 +16,10 @@ export default function NotificationCentre({ isOpen, onClose }) {
     setLoading(true)
     try {
       const res = await fetch('/api/system/notifications')
-      const data = await res.json()
-      setEvents(data.slice(0, 10)) // Only show last 10
+      const data = await res.json().catch(() => [])
+      setEvents(Array.isArray(data) ? data.slice(0, 10) : [])
+    } catch {
+      setEvents([])
     } finally {
       setLoading(false)
     }

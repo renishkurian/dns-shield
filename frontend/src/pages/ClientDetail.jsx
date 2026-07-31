@@ -130,13 +130,13 @@ export default function ClientDetail({ user, total, blocked, top_domains = [], v
   const blockPercent = total > 0 ? ((blocked / total) * 100).toFixed(1) : 0
   const DeviceIcon = getDeviceIcon(client.device_type)
 
-  const chartData = top_domains.map((d, i) => ({
+  const chartData = (top_domains || []).map((d, i) => ({
     label: d.domain,
     count: d.count,
     color: `hsl(${200 + i * 30}, 70%, 50%)`
   }))
 
-  const filteredVisited = visited_domains.filter(d =>
+  const filteredVisited = (visited_domains || []).filter(d =>
     !domainSearch || d.domain.toLowerCase().includes(domainSearch.toLowerCase())
   )
 
@@ -223,7 +223,7 @@ export default function ClientDetail({ user, total, blocked, top_domains = [], v
               <Globe size={16} className="text-brand-400" />
               Top Domains
             </h3>
-            {top_domains.length > 0 ? (
+            {(top_domains || []).length > 0 ? (
               <DoughnutChart data={chartData} size={160} thickness={20} />
             ) : (
               <div className="h-40 flex items-center justify-center text-slate-600 text-xs text-center px-4">
@@ -328,9 +328,9 @@ export default function ClientDetail({ user, total, blocked, top_domains = [], v
                   </tbody>
                 </table>
               </div>
-              {visited_domains.length > 0 && (
+              {(visited_domains || []).length > 0 && (
                 <div className="p-4 bg-slate-900/10 border-t border-slate-700/30 text-center text-[10px] text-slate-500 uppercase tracking-widest">
-                  {filteredVisited.length} of {visited_domains.length} domains · last 24h
+                  {filteredVisited.length} of {(visited_domains || []).length} domains · last 24h
                 </div>
               )}
             </>

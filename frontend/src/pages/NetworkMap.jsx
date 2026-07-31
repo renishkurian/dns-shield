@@ -37,7 +37,7 @@ function formatLastSeen(ts) {
 }
 
 export default function NetworkMap({ user: currentUser, clients: initialClients = [] }) {
-  const [clients, setClients] = useState(initialClients)
+  const [clients, setClients] = useState(() => (Array.isArray(initialClients) ? initialClients : []))
   const [scanning, setScanning] = useState(false)
   const [scanPhase, setScanPhase] = useState('')
   const [scanStats, setScanStats] = useState({ found: 0, enriched: 0 })
@@ -145,7 +145,7 @@ export default function NetworkMap({ user: currentUser, clients: initialClients 
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {clients.map(c => {
+        {(clients || []).map(c => {
           const Icon = getDeviceIcon(c.device_type, c.vendor, c.hostname)
           const title = c.nickname || c.name || c.hostname || c.vendor || 'Unknown Device'
           return (
