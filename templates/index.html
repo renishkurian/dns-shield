@@ -8,10 +8,6 @@
   <meta name="description" content="DNS Shield — Raspberry Pi DNS management platform" />
   <title>DNS Shield</title>
   <link rel="icon" type="image/svg+xml" href="{% static 'favicon.svg' %}" />
-  <!-- Inertia page data -->
-  <script id="inertia-data" type="application/json">
-    {"page": "{{ page }}", "props": {{ props|safe }}}
-  </script>
   {% if debug %}
   <!-- Dev: Vite HMR -->
   <script type="module" src="http://localhost:5173/@vite/client"></script>
@@ -24,20 +20,12 @@
 </head>
 
 <body>
-  {% if props %}
-  <div id="app" data-page='{{ page_json|safe }}'></div>
+  {# Double-quoted + auto-escaped: apostrophes/quotes in AI logs must not break JSON.parse #}
+  {% if page_json %}
+  <div id="app" data-page="{{ page_json }}"></div>
   {% else %}
   <div id="app"></div>
   {% endif %}
-  <script>
-    // Bootstrap Inertia with server-rendered props
-    window.__inertia_initial_page = {
-      component: "{{ page }}",
-      props: {{ props | safe }},
-      url: window.location.href,
-      version: "1"
-    };
-  </script>
 </body>
 
 </html>

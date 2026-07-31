@@ -52,15 +52,18 @@ def render_inertia(request, page_name, props):
         'url': request.get_full_path(),
         'version': '1',
     }
-    
+
     if request.headers.get('X-Inertia'):
         return JsonResponse(page_data, headers={'X-Inertia': 'true'})
-    
+
+    # Template puts this in data-page="..."; Django auto-escapes quotes/&/<>.
+    # Do not mark_safe — |safe previously broke on apostrophes in AI prompts.
+    page_json = json.dumps(page_data, default=str, ensure_ascii=False)
+
     assets = get_vite_assets()
     return render(request, 'index.html', {
         'page': page_name,
-        'props': json.dumps(props, default=str),
-        'page_json': json.dumps(page_data, default=str),
+        'page_json': page_json,
         'vite_js': assets['js'],
         'vite_css': assets['css'],
         'debug': bool(settings.DEBUG),
@@ -260,10 +263,9 @@ def _system_log_props(request):
 
 
 def _ai_usage_props(request):
-    from dns.models import AIUsageLog
-    from dns.serializers import AIUsageLogSerializer
-    logs = AIUsageLog.objects.all().order_by('-timestamp')[:100]
-    return {'logs': AIUsageLogSerializer(logs, many=True).data}
+    # List UI loads full rows (incl. prompt/response) via /api/ai/usage.
+    # Keep SSR payload light and avoid embedding huge text in data-page.
+    return {'logs': []}
 
 
 def _threat_feeds_props(request):
