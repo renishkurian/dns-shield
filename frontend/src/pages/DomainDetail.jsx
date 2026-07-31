@@ -40,11 +40,20 @@ function MiniLineChart({ data, width = 600, height = 120 }) {
   )
 }
 
-export default function DomainDetail({ user, domain, total_hits_30d, status_split, top_clients, history, is_blocked }) {
+export default function DomainDetail({
+  user,
+  domain = '',
+  total_hits_30d = 0,
+  status_split = [],
+  top_clients = [],
+  history = [],
+  is_blocked = false,
+}) {
   const handleBack = () => window.history.back()
+  const hits = total_hits_30d || 0
 
   return (
-    <Layout user={user} currentPath="/queries" title={`Domain: ${domain}`}>
+    <Layout user={user} currentPath="/queries" title={`Domain: ${domain || 'Unknown'}`}>
       <div className="max-w-5xl mx-auto">
         <button 
           onClick={handleBack}
@@ -63,15 +72,17 @@ export default function DomainDetail({ user, domain, total_hits_30d, status_spli
                 <Globe size={32} />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-white mb-1">{domain}</h1>
+                <h1 className="text-2xl font-bold text-white mb-1">{domain || 'Unknown domain'}</h1>
                 <div className="flex items-center gap-3">
                   <span className={`badge-${is_blocked ? 'red' : 'green'} flex items-center gap-1`}>
                     {is_blocked ? <Shield size={12} /> : <CheckCircle size={12} />}
                     {is_blocked ? 'Currently Blocked' : 'Currently Allowed'}
                   </span>
-                  <a href={`http://${domain}`} target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-white flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest">
-                    Open Site <ExternalLink size={10} />
-                  </a>
+                  {domain && (
+                    <a href={`http://${domain}`} target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-white flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest">
+                      Open Site <ExternalLink size={10} />
+                    </a>
+                  )}
                 </div>
               </div>
             </div>
@@ -79,7 +90,7 @@ export default function DomainDetail({ user, domain, total_hits_30d, status_spli
             <div className="flex gap-8 px-6 py-2 bg-slate-900/50 border border-slate-700/30 rounded-2xl">
               <div className="text-center">
                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Hits (30d)</p>
-                <p className="text-xl font-bold text-white">{total_hits_30d.toLocaleString()}</p>
+                <p className="text-xl font-bold text-white">{hits.toLocaleString()}</p>
               </div>
               <div className="w-px bg-slate-800" />
               <div className="text-center">
@@ -143,11 +154,12 @@ export default function DomainDetail({ user, domain, total_hits_30d, status_spli
                    <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
                      <div 
                        className={`h-full rounded-full ${s.status === 'allowed' ? 'bg-green-500' : 'bg-red-500'}`}
-                       style={{ width: `${(s.count / total_hits_30d * 100)}%` }}
+                       style={{ width: `${hits ? (s.count / hits * 100) : 0}%` }}
                      />
                    </div>
                  </div>
                ))}
+               {status_split.length === 0 && <p className="text-xs text-slate-600 italic">No query data.</p>}
              </div>
           </div>
 

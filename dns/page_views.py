@@ -117,9 +117,12 @@ def dashboard(request):
 def _call_view(ViewClass, request, *args, **kwargs):
     """Call an APIView's get() method and return the response data."""
     try:
+        from rest_framework.request import Request
+        drf_request = request if isinstance(request, Request) else Request(request)
         view = ViewClass()
-        view.request = request
-        response = view.get(request, *args, **kwargs)
+        view.request = drf_request
+        view.format_kwarg = None
+        response = view.get(drf_request, *args, **kwargs)
         return response.data
     except Exception:
         return None

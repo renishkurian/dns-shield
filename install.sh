@@ -30,8 +30,10 @@ echo "[2/8] Setting up application directory..."
 if [ ! -d "$APP_DIR" ]; then
     cp -r "$(pwd)" "$APP_DIR"
 fi
-chown -R www-data:www-data "$APP_DIR"
 mkdir -p "$APP_DIR/logs" "$APP_DIR/staticfiles" "$APP_DIR/media"
+# Ensure www-data can write logs/DB (web runs as www-data; mkdir as root would otherwise break Daphne)
+touch "$APP_DIR/logs/dns_shield.log"
+chown -R www-data:www-data "$APP_DIR"
 
 # ─── Python virtualenv ────────────────────────────────────────────────────────
 echo "[3/8] Creating Python virtualenv..."
@@ -58,6 +60,12 @@ $PYTHON manage.py createsuperuser \
     --no-input \
     --username admin \
     --email admin@localhost 2>/dev/null || echo "  Admin user already exists"
+
+# Re-apply ownership after root-run migrate/collectstatic/npm create root-owned files
+chown -R www-data:www-data "$APP_DIR"
+# Proxy runs as root and must still append to proxy.log
+chmod 775 "$APP_DIR/logs"
+chmod 664 "$APP_DIR/logs"/*.log 2>/dev/null || true
 
 # ─── Sudoers ──────────────────────────────────────────────────────────────────
 echo "[6/8] Configuring sudoers..."
