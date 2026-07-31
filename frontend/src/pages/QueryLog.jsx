@@ -9,12 +9,18 @@ import {
 } from 'lucide-react'
 
 const STATUS_LABELS = {
-  allowed:         { label: 'Allowed',        cls: 'badge-green' },
-  blocked_pattern: { label: 'Pattern',        cls: 'badge-red' },
-  blocked_domain:  { label: 'Domain',         cls: 'badge-red' },
-  blocked_ai:      { label: 'Blocked (AI)',   cls: 'badge-red' },
-  nxdomain:        { label: 'NXDOMAIN',       cls: 'badge-gray' },
+  allowed:         { label: 'Allowed',           cls: 'badge-green' },
+  blocked_pattern: { label: 'Blocked (Pattern)', cls: 'badge-red' },
+  blocked_domain:  { label: 'Blocked (Domain)',  cls: 'badge-red' },
+  blocked_list:    { label: 'Blocked (List)',    cls: 'badge-red' },
+  blocked_ai:      { label: 'Blocked (AI)',      cls: 'badge-red' },
+  nxdomain:        { label: 'NXDOMAIN',          cls: 'badge-gray' },
 }
+
+const BLOCKED_STATUSES = new Set([
+  'blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai',
+])
+
 
 const RESOLUTION_ICONS = {
   'Cache': Database,
@@ -236,7 +242,11 @@ export default function QueryLog({ user, initialQueries = [] }) {
   }, [])
 
   const filtered = entries.filter(e => {
-    if (filters.status && e.status !== filters.status) return false
+    if (filters.status === 'blocked') {
+      if (!BLOCKED_STATUSES.has(e.status) && !e.status?.startsWith('blocked')) return false
+    } else if (filters.status && e.status !== filters.status) {
+      return false
+    }
     if (filters.client && !e.client_ip?.includes(filters.client)) return false
     if (filters.domain && !e.domain?.includes(filters.domain)) return false
     return true
@@ -279,9 +289,10 @@ export default function QueryLog({ user, initialQueries = [] }) {
             value={filters.domain} onChange={e => setFilters(f => ({...f, domain: e.target.value}))} />
           <input className="input w-32 text-xs py-1.5" placeholder="Client IP…"
             value={filters.client} onChange={e => setFilters(f => ({...f, client: e.target.value}))} />
-          <select className="input w-36 text-xs py-1.5" value={filters.status}
+          <select className="input w-44 text-xs py-1.5" value={filters.status}
             onChange={e => setFilters(f => ({...f, status: e.target.value}))}>
             <option value="">All statuses</option>
+            <option value="blocked">All blocked</option>
             {Object.entries(STATUS_LABELS).map(([v, {label}]) => (
               <option key={v} value={v}>{label}</option>
             ))}
