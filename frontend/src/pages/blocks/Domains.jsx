@@ -32,8 +32,11 @@ function AddDomainModal({ onClose, onSave, user }) {
         <div className="space-y-3">
           <div>
             <label className="label">Domain</label>
-            <input className="input" placeholder="ads.example.com"
+            <input className="input" placeholder="ads.example.com (not https://…)"
               value={form.domain} onChange={e => setForm(f => ({...f, domain: e.target.value}))} />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Bare hostname only. Paste a full URL and the host will be extracted automatically.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -41,8 +44,8 @@ function AddDomainModal({ onClose, onSave, user }) {
               <select className="input" value={form.block_type}
                 onChange={e => setForm(f => ({...f, block_type: e.target.value}))}>
                 <option value="exact">Exact match</option>
-                <option value="wildcard">Wildcard</option>
-                <option value="regex">Regex</option>
+                <option value="wildcard">Wildcard (domain + subdomains)</option>
+                <option value="regex">Regex (advanced)</option>
               </select>
             </div>
             <div>

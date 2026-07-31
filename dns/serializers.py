@@ -40,6 +40,47 @@ class BlockGroupSerializer(serializers.ModelSerializer):
 
 # ─── Blocks ──────────────────────────────────────────────────────────────────
 
+def _normalize_block_domain(value: str, *, allow_regex: bool = False) -> str:
+    """
+    Turn pasted URLs into bare hostnames for DNS matching.
+    DNS only sees hostnames (e.g. ads.example.com), never https:// or paths.
+    """
+    from urllib.parse import urlparse
+
+    raw = (value or '').strip()
+    if not raw:
+        raise serializers.ValidationError('Enter a domain name (e.g. ads.example.com).')
+
+    # Regex rules are patterns — only trim whitespace; do not strip URL parts.
+    if allow_regex:
+        return raw
+
+    candidate = raw
+    if '://' in candidate or candidate.startswith('//'):
+        parsed = urlparse(candidate if '://' in candidate else f'https:{candidate}')
+        candidate = parsed.hostname or parsed.path.split('/')[0]
+    else:
+        # Strip path / query / fragment if someone pasted example.com/foo?x=1
+        candidate = candidate.split('/')[0].split('?')[0].split('#')[0]
+
+    domain = (candidate or '').strip().lower().rstrip('.')
+    # Drop accidental port (example.com:443)
+    if domain.count(':') == 1 and not domain.startswith('['):
+        host, _, port = domain.partition(':')
+        if port.isdigit():
+            domain = host
+
+    if domain.startswith('www.'):
+        # Keep www — exact match is intentional; only strip scheme/path above.
+        pass
+
+    if not domain or ' ' in domain or '/' in domain or '://' in domain:
+        raise serializers.ValidationError(
+            'Enter a bare domain only (e.g. fsiblogxx.com), not a full URL.'
+        )
+    return domain
+
+
 class BlockedDomainSerializer(serializers.ModelSerializer):
     created_by_username = serializers.SerializerMethodField(read_only=True)
 
@@ -51,6 +92,15 @@ class BlockedDomainSerializer(serializers.ModelSerializer):
 
     def get_created_by_username(self, obj):
         return obj.created_by.username if obj.created_by else None
+
+    def validate(self, attrs):
+        block_type = attrs.get('block_type') or getattr(self.instance, 'block_type', 'exact')
+        if 'domain' in attrs:
+            attrs['domain'] = _normalize_block_domain(
+                attrs['domain'],
+                allow_regex=(block_type == 'regex'),
+            )
+        return attrs
 
 
 class PatternSerializer(serializers.ModelSerializer):
@@ -71,6 +121,15 @@ class AllowedDomainSerializer(serializers.ModelSerializer):
         model = AllowedDomain
         fields = ['id', 'domain', 'allow_type', 'enabled', 'comment', 'created_by', 'group']
         read_only_fields = ['created_by']
+
+    def validate(self, attrs):
+        allow_type = attrs.get('allow_type') or getattr(self.instance, 'allow_type', 'exact')
+        if 'domain' in attrs:
+            attrs['domain'] = _normalize_block_domain(
+                attrs['domain'],
+                allow_regex=(allow_type == 'regex'),
+            )
+        return attrs
 
 
 # ─── Lists / Adlists ─────────────────────────────────────────────────────────
