@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
-from django.db.models import Count, Avg, Q
+from django.db.models import Count, Avg, Q, Max
 from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone as dj_timezone
 from rest_framework import status
@@ -1497,9 +1497,7 @@ class ClientHistoryView(APIView):
         except Client.DoesNotExist:
             return Response({'error': 'Client not found'}, status=404)
         
-        qs = QueryLog.objects.filter(client_ip=client.ip)
-        # Apply more filters if needed
-        qs = qs[:500]
+        qs = QueryLog.objects.filter(client_ip=client.ip).order_by('-timestamp')[:500]
         return Response(QueryLogSerializer(qs, many=True).data)
 
 
@@ -1521,6 +1519,21 @@ class ClientStatsView(APIView):
             .annotate(count=Count('id'))
             .order_by('-count')[:10]
         )
+
+        visited_domains = (
+            qs.values('domain')
+            .annotate(
+                count=Count('id'),
+                last_seen=Max('timestamp'),
+                blocked=Count(
+                    'id',
+                    filter=Q(status__in=[
+                        'blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai',
+                    ]),
+                ),
+            )
+            .order_by('-count')[:500]
+        )
         
         hourly = {}
         for entry in qs.values('timestamp__hour', 'status').annotate(count=Count('id')):
@@ -1536,6 +1549,7 @@ class ClientStatsView(APIView):
             'total': total,
             'blocked': blocked,
             'top_domains': list(top_domains),
+            'visited_domains': list(visited_domains),
             'hourly': sorted(hourly.values(), key=lambda x: x['hour']),
             'client': ClientSerializer(client).data
         })

@@ -90,9 +90,27 @@ function ClientHourlyChart({ data }) {
   return <canvas ref={canvasRef} className="w-full h-full" />
 }
 
-export default function ClientDetail({ user, total, blocked, top_domains, hourly, client, error }) {
+export default function ClientDetail({ user, total, blocked, top_domains = [], visited_domains = [], hourly, client, error }) {
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
+  const [domainSearch, setDomainSearch] = useState('')
+  const [historySearch, setHistorySearch] = useState('')
+  const [activeTab, setActiveTab] = useState('visited')
+
+  useEffect(() => {
+    if (!client?.id) {
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    fetch(`/api/clients/${client.id}/history`)
+      .then(r => r.json())
+      .then(d => {
+        setHistory(Array.isArray(d) ? d : [])
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+  }, [client?.id])
 
   if (error || !client) {
     return (
@@ -112,20 +130,32 @@ export default function ClientDetail({ user, total, blocked, top_domains, hourly
   const blockPercent = total > 0 ? ((blocked / total) * 100).toFixed(1) : 0
   const DeviceIcon = getDeviceIcon(client.device_type)
 
-  useEffect(() => {
-    fetch(`/api/clients/${client.id}/history`)
-      .then(r => r.json())
-      .then(d => {
-        setHistory(d)
-        setLoading(false)
-      })
-  }, [client.id])
-
   const chartData = top_domains.map((d, i) => ({
     label: d.domain,
     count: d.count,
     color: `hsl(${200 + i * 30}, 70%, 50%)`
   }))
+
+  const filteredVisited = visited_domains.filter(d =>
+    !domainSearch || d.domain.toLowerCase().includes(domainSearch.toLowerCase())
+  )
+
+  const filteredHistory = history.filter(q =>
+    !historySearch || q.domain?.toLowerCase().includes(historySearch.toLowerCase())
+  )
+
+  const formatLastSeen = (ts) => {
+    if (!ts) return '—'
+    const d = new Date(ts)
+    return d.toLocaleString([], {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+  }
 
   return (
     <Layout user={user} currentPath="/clients" title={`Client: ${client.name || client.ip}`}>
@@ -203,93 +233,182 @@ export default function ClientDetail({ user, total, blocked, top_domains, hourly
           </div>
         </div>
 
-        {/* History Table */}
+        {/* Visited Domains / Recent Activity */}
         <div className="card p-0 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-700/50 flex items-center justify-between">
-            <h3 className="font-bold text-white text-sm flex items-center gap-2">
-              <Clock size={16} className="text-brand-400" />
-              Recent Activity
-            </h3>
+          <div className="px-6 py-4 border-b border-slate-700/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex gap-1 p-1 bg-slate-900/50 border border-slate-800 rounded-xl w-fit">
+              <button
+                type="button"
+                onClick={() => setActiveTab('visited')}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+                  activeTab === 'visited' ? 'bg-brand-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                Visited Domains
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('history')}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+                  activeTab === 'history' ? 'bg-brand-500 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                Recent Activity
+              </button>
+            </div>
             <div className="relative">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input 
-                placeholder="Search history..." 
+              <input
+                placeholder={activeTab === 'visited' ? 'Search domains…' : 'Search history…'}
                 className="bg-slate-900/50 border border-slate-700/50 rounded-lg pl-9 pr-4 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500/50 transition-colors w-48 md:w-64"
+                value={activeTab === 'visited' ? domainSearch : historySearch}
+                onChange={e => activeTab === 'visited'
+                  ? setDomainSearch(e.target.value)
+                  : setHistorySearch(e.target.value)}
               />
             </div>
           </div>
-          
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-wider text-slate-500 font-bold border-b border-slate-700/30">
-                  <th className="px-6 py-3">Time</th>
-                  <th className="px-6 py-3">Domain</th>
-                  <th className="px-6 py-3 text-center">Status</th>
-                  <th className="px-6 py-3">Answer</th>
-                </tr>
-              </thead>
-              <tbody className="text-xs">
-                {loading ? (
-                  Array(5).fill(0).map((_, i) => (
-                    <tr key={i} className="animate-pulse">
-                      <td colSpan="4" className="px-6 py-4"><div className="h-4 bg-slate-800 rounded w-full" /></td>
+
+          {activeTab === 'visited' ? (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-slate-500 font-bold border-b border-slate-700/30">
+                      <th className="px-6 py-3">Domain</th>
+                      <th className="px-6 py-3 text-right">Visits</th>
+                      <th className="px-6 py-3 text-right">Blocked</th>
+                      <th className="px-6 py-3 text-right">Last Visited</th>
                     </tr>
-                  ))
-                ) : history.length > 0 ? (
-                  history.map((q) => (
-                    <tr key={q.id} className="border-b border-slate-800/30 hover:bg-white/[0.02] group transition-colors">
-                      <td className="px-6 py-3 text-slate-500 font-mono whitespace-nowrap">
-                        {new Date(q.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </td>
-                      <td className="px-6 py-3">
-                        <div className="flex items-center gap-2">
-                          <Link 
-                            href={`/domains/detail?domain=${q.domain}`}
-                            className="text-white hover:text-brand-400 font-medium transition-colors truncate max-w-xs md:max-w-md block"
-                          >
-                            {q.domain}
-                          </Link>
-                          <a href={`http://${q.domain}`} target="_blank" rel="noopener noreferrer" className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white">
-                            <ExternalLink size={10} />
-                          </a>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3">
-                        <div className="flex justify-center">
-                          {q.status.startsWith('blocked') ? (
-                            <span className="badge-red flex items-center gap-1">
-                              <AlertCircle size={10} /> {q.status.split('_').pop().toUpperCase()}
-                            </span>
-                          ) : (
-                            <span className="badge-green flex items-center gap-1">
-                              <CheckCircle size={10} /> ALLOWED
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-3 text-slate-400 truncate max-w-[150px]">
-                        {q.resolved_by || q.matched_rule || q.resolved_ip || '—'}
-                      </td>
+                  </thead>
+                  <tbody className="text-xs">
+                    {filteredVisited.length > 0 ? (
+                      filteredVisited.map((d) => (
+                        <tr key={d.domain} className="border-b border-slate-800/30 hover:bg-white/[0.02] group transition-colors">
+                          <td className="px-6 py-3">
+                            <div className="flex items-center gap-2">
+                              <Link
+                                href={`/domains/detail?domain=${encodeURIComponent(d.domain)}`}
+                                className="text-white hover:text-brand-400 font-medium transition-colors truncate max-w-xs md:max-w-md block font-mono"
+                              >
+                                {d.domain}
+                              </Link>
+                              <a
+                                href={`http://${d.domain}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white"
+                              >
+                                <ExternalLink size={10} />
+                              </a>
+                            </div>
+                          </td>
+                          <td className="px-6 py-3 text-right text-slate-300 font-mono tabular-nums">
+                            {d.count?.toLocaleString()}
+                          </td>
+                          <td className="px-6 py-3 text-right font-mono tabular-nums">
+                            {d.blocked > 0 ? (
+                              <span className="text-red-400">{d.blocked.toLocaleString()}</span>
+                            ) : (
+                              <span className="text-slate-600">0</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-3 text-right text-slate-400 font-mono whitespace-nowrap">
+                            {formatLastSeen(d.last_seen)}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="4" className="px-6 py-12 text-center text-slate-600 italic">
+                          {domainSearch ? 'No matching domains.' : 'No visited domains in the last 24 hours.'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {visited_domains.length > 0 && (
+                <div className="p-4 bg-slate-900/10 border-t border-slate-700/30 text-center text-[10px] text-slate-500 uppercase tracking-widest">
+                  {filteredVisited.length} of {visited_domains.length} domains · last 24h
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-slate-500 font-bold border-b border-slate-700/30">
+                      <th className="px-6 py-3">Time</th>
+                      <th className="px-6 py-3">Domain</th>
+                      <th className="px-6 py-3 text-center">Status</th>
+                      <th className="px-6 py-3">Answer</th>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="4" className="px-6 py-12 text-center text-slate-600 italic">
-                      No query history found for this client.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          
-          {history.length > 0 && (
-            <div className="p-4 bg-slate-900/10 border-t border-slate-700/30 text-center">
-              <Link href={`/queries?client=${client.ip}`} className="text-brand-400 hover:text-brand-300 text-xs font-bold uppercase tracking-widest">
-                View All Activity Log
-              </Link>
-            </div>
+                  </thead>
+                  <tbody className="text-xs">
+                    {loading ? (
+                      Array(5).fill(0).map((_, i) => (
+                        <tr key={i} className="animate-pulse">
+                          <td colSpan="4" className="px-6 py-4"><div className="h-4 bg-slate-800 rounded w-full" /></td>
+                        </tr>
+                      ))
+                    ) : filteredHistory.length > 0 ? (
+                      filteredHistory.map((q) => (
+                        <tr key={q.id} className="border-b border-slate-800/30 hover:bg-white/[0.02] group transition-colors">
+                          <td className="px-6 py-3 text-slate-500 font-mono whitespace-nowrap">
+                            {new Date(q.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </td>
+                          <td className="px-6 py-3">
+                            <div className="flex items-center gap-2">
+                              <Link
+                                href={`/domains/detail?domain=${q.domain}`}
+                                className="text-white hover:text-brand-400 font-medium transition-colors truncate max-w-xs md:max-w-md block"
+                              >
+                                {q.domain}
+                              </Link>
+                              <a href={`http://${q.domain}`} target="_blank" rel="noopener noreferrer" className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white">
+                                <ExternalLink size={10} />
+                              </a>
+                            </div>
+                          </td>
+                          <td className="px-6 py-3">
+                            <div className="flex justify-center">
+                              {q.status.startsWith('blocked') ? (
+                                <span className="badge-red flex items-center gap-1">
+                                  <AlertCircle size={10} /> {q.status.split('_').pop().toUpperCase()}
+                                </span>
+                              ) : (
+                                <span className="badge-green flex items-center gap-1">
+                                  <CheckCircle size={10} /> ALLOWED
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-3 text-slate-400 truncate max-w-[150px]">
+                            {q.resolved_by || q.matched_rule || q.resolved_ip || '—'}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="4" className="px-6 py-12 text-center text-slate-600 italic">
+                          {historySearch ? 'No matching history.' : 'No query history found for this client.'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {history.length > 0 && (
+                <div className="p-4 bg-slate-900/10 border-t border-slate-700/30 text-center">
+                  <Link href={`/queries?client=${client.ip}`} className="text-brand-400 hover:text-brand-300 text-xs font-bold uppercase tracking-widest">
+                    View All Activity Log
+                  </Link>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -302,6 +421,8 @@ ClientDetail.propTypes = {
   total: PropTypes.number,
   blocked: PropTypes.number,
   top_domains: PropTypes.array,
+  visited_domains: PropTypes.array,
   hourly: PropTypes.array,
-  client: PropTypes.object
+  client: PropTypes.object,
+  error: PropTypes.string,
 }
