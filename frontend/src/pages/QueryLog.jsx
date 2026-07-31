@@ -186,12 +186,27 @@ function QueryInspector({ entry, onClose }) {
 }
 QueryInspector.propTypes = { entry: PropTypes.object, onClose: PropTypes.func }
 
+function getQueryParam(name) {
+  try {
+    return new URLSearchParams(window.location.search).get(name) || ''
+  } catch {
+    return ''
+  }
+}
+
 export default function QueryLog({ user, initialQueries = [] }) {
+  const initialClient = getQueryParam('client')
+  const initialDomain = getQueryParam('domain')
+  const initialStatus = getQueryParam('status')
   const [entries, setEntries] = useState(initialQueries)
   const [paused, setPaused] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState(null)
-  const [filters, setFilters] = useState({ status: '', client: '', domain: '' })
-  const [draft, setDraft] = useState({ client: '', domain: '' })
+  const [filters, setFilters] = useState({
+    status: initialStatus,
+    client: initialClient,
+    domain: initialDomain,
+  })
+  const [draft, setDraft] = useState({ client: initialClient, domain: initialDomain })
   const [acting, setActing] = useState(null)
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)

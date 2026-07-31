@@ -45,16 +45,40 @@ def get_default_claude_account() -> dict | None:
     return accounts[0] if accounts else None
 
 
-def _log_usage(user, feature, query, system_prompt, user_prompt, response_text, tokens=0):
+def _log_usage(
+    user,
+    feature,
+    query,
+    system_prompt,
+    user_prompt,
+    response_text,
+    *,
+    provider='',
+    model='',
+    tokens=0,
+    tokens_input=0,
+    tokens_output=0,
+    status='ok',
+    error_message='',
+):
     try:
         from dns.models import AIUsageLog
+        total = tokens or (tokens_input + tokens_output)
+        if not total and (system_prompt or user_prompt or response_text):
+            total = max(len(f'{system_prompt}{user_prompt}{response_text}') // 4, 1)
         AIUsageLog.objects.create(
             user=user if user and getattr(user, 'is_authenticated', False) else None,
-            feature=feature,
-            query=query,
-            prompt=f'System: {system_prompt}\nUser: {user_prompt}',
-            response=response_text,
-            tokens_estimate=tokens,
+            feature=feature or 'unknown',
+            query=(query or '')[:255],
+            prompt=f'System:\n{system_prompt}\n\nUser:\n{user_prompt}',
+            response=response_text or '',
+            provider=provider or '',
+            model=model or '',
+            tokens_estimate=total,
+            tokens_input=tokens_input,
+            tokens_output=tokens_output,
+            status=status,
+            error_message=(error_message or '')[:2000],
         )
     except Exception as log_err:
         print(f'AI Logging failed: {log_err}')
@@ -63,30 +87,48 @@ def _log_usage(user, feature, query, system_prompt, user_prompt, response_text, 
 def ask_ai(system_prompt: str, user_prompt: str, user=None, feature='unknown', query='') -> str:
     """Send a prompt to the configured AI provider. Returns string response or throws ValueError."""
     enabled, provider, api_key, model = get_ai_config()
-    if not enabled or not provider:
-        raise ValueError('AI Integration is not configured or is disabled.')
-
-    # Claude browser uses session accounts instead of an API key
-    if provider != 'claude_browser' and not api_key:
-        raise ValueError('AI Integration is not configured or is disabled.')
-
+    used_model = ''
+    tokens_in = 0
+    tokens_out = 0
     response_text = ''
-    tokens = 0
+
+    if not enabled or not provider:
+        err = 'AI Integration is not configured or is disabled.'
+        _log_usage(
+            user, feature, query, system_prompt, user_prompt, '',
+            provider=provider or '', model='', status='error', error_message=err,
+        )
+        raise ValueError(err)
+
+    if provider != 'claude_browser' and not api_key:
+        err = 'AI Integration is not configured or is disabled.'
+        _log_usage(
+            user, feature, query, system_prompt, user_prompt, '',
+            provider=provider, model='', status='error', error_message=err,
+        )
+        raise ValueError(err)
+
     try:
         if provider == 'openai':
             import openai
+            used_model = model or 'gpt-4o-mini'
             client = openai.OpenAI(api_key=api_key)
             response = client.chat.completions.create(
-                model=model or 'gpt-4o-mini',
+                model=used_model,
                 messages=[
                     {'role': 'system', 'content': system_prompt},
                     {'role': 'user', 'content': user_prompt},
                 ],
             )
-            response_text = response.choices[0].message.content
+            response_text = response.choices[0].message.content or ''
+            usage = getattr(response, 'usage', None)
+            if usage:
+                tokens_in = getattr(usage, 'prompt_tokens', 0) or 0
+                tokens_out = getattr(usage, 'completion_tokens', 0) or 0
 
         elif provider == 'openrouter':
             import openai
+            used_model = model or 'openai/gpt-4o-mini'
             client = openai.OpenAI(
                 api_key=api_key,
                 base_url='https://openrouter.ai/api/v1',
@@ -96,37 +138,55 @@ def ask_ai(system_prompt: str, user_prompt: str, user=None, feature='unknown', q
                 },
             )
             response = client.chat.completions.create(
-                model=model or 'openai/gpt-4o-mini',
+                model=used_model,
                 messages=[
                     {'role': 'system', 'content': system_prompt},
                     {'role': 'user', 'content': user_prompt},
                 ],
             )
-            response_text = response.choices[0].message.content
+            response_text = response.choices[0].message.content or ''
+            usage = getattr(response, 'usage', None)
+            if usage:
+                tokens_in = getattr(usage, 'prompt_tokens', 0) or 0
+                tokens_out = getattr(usage, 'completion_tokens', 0) or 0
 
         elif provider == 'anthropic':
             import anthropic
+            used_model = model or 'claude-3-haiku-20240307'
             client = anthropic.Anthropic(api_key=api_key)
             response = client.messages.create(
-                model=model or 'claude-3-haiku-20240307',
+                model=used_model,
                 max_tokens=1024,
                 system=system_prompt,
                 messages=[{'role': 'user', 'content': user_prompt}],
             )
-            response_text = response.content[0].text
+            response_text = response.content[0].text if response.content else ''
+            usage = getattr(response, 'usage', None)
+            if usage:
+                tokens_in = getattr(usage, 'input_tokens', 0) or 0
+                tokens_out = getattr(usage, 'output_tokens', 0) or 0
 
         elif provider == 'gemini':
             import google.generativeai as genai
+            used_model = model or 'gemini-1.5-flash'
             genai.configure(api_key=api_key)
             gmodel = genai.GenerativeModel(
-                model or 'gemini-1.5-flash',
+                used_model,
                 system_instruction=system_prompt,
             )
             response = gmodel.generate_content(user_prompt)
-            response_text = response.text
+            response_text = response.text or ''
+            try:
+                meta = getattr(response, 'usage_metadata', None)
+                if meta:
+                    tokens_in = getattr(meta, 'prompt_token_count', 0) or 0
+                    tokens_out = getattr(meta, 'candidates_token_count', 0) or 0
+            except Exception:
+                pass
 
         elif provider == 'claude_browser':
-            from dns.claude_browser import complete
+            from dns.claude_browser import create_conversation, ask_claude, compose_prompt
+            used_model = model or 'claude-sonnet-5'
             account = get_default_claude_account()
             if not account:
                 raise ValueError(
@@ -137,23 +197,35 @@ def ask_ai(system_prompt: str, user_prompt: str, user=None, feature='unknown', q
             org_id = (account.get('org_id') or '').strip()
             if not session_key or not org_id:
                 raise ValueError('Default Claude browser account is missing session key or org ID.')
-            response_text = complete(
-                session_key,
-                org_id,
-                system_prompt,
-                user_prompt,
-                model=model or 'claude-sonnet-5',
-                title=f'DNS Shield ({feature})',
+            prompt = compose_prompt(system_prompt, user_prompt)
+            conv_id = create_conversation(
+                session_key, org_id, title=f'DNS Shield ({feature})', model=used_model, system_prompt='',
             )
-            tokens = max(len(system_prompt + user_prompt + response_text) // 4, 1)
+            response_text, tokens_in, tokens_out = ask_claude(
+                session_key, org_id, prompt=prompt, conv_id=conv_id, model=used_model, minimal_tools=True,
+            )
+            response_text = (response_text or '').strip()
+            if not response_text:
+                raise ValueError('Empty response from Claude browser wrapper — check session key / org ID')
 
         else:
             raise ValueError(f'Unsupported AI Provider: {provider}')
 
-        _log_usage(user, feature, query, system_prompt, user_prompt, response_text, tokens)
+        _log_usage(
+            user, feature, query, system_prompt, user_prompt, response_text,
+            provider=provider, model=used_model,
+            tokens_input=tokens_in, tokens_output=tokens_out,
+            status='ok',
+        )
         return response_text
 
-    except Exception:
+    except Exception as e:
+        _log_usage(
+            user, feature, query, system_prompt, user_prompt, response_text,
+            provider=provider or '', model=used_model or (model or ''),
+            tokens_input=tokens_in, tokens_output=tokens_out,
+            status='error', error_message=str(e),
+        )
         raise
 
 

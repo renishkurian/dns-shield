@@ -39,8 +39,26 @@ class AIUsageLogListView(APIView):
     permission_classes = [IsAdminRole]
 
     def get(self, request):
-        qs = AIUsageLog.objects.all()
-        return Response(AIUsageLogSerializer(qs, many=True).data)
+        qs = AIUsageLog.objects.all().order_by('-timestamp')
+        feature = request.query_params.get('feature')
+        provider = request.query_params.get('provider')
+        status_f = request.query_params.get('status')
+        q = request.query_params.get('q')
+        if feature:
+            qs = qs.filter(feature=feature)
+        if provider:
+            qs = qs.filter(provider=provider)
+        if status_f:
+            qs = qs.filter(status=status_f)
+        if q:
+            qs = qs.filter(
+                Q(query__icontains=q)
+                | Q(prompt__icontains=q)
+                | Q(response__icontains=q)
+                | Q(model__icontains=q)
+                | Q(feature__icontains=q)
+            )
+        return Response(AIUsageLogSerializer(qs[:500], many=True).data)
 
     def delete(self, request):
         AIUsageLog.objects.all().delete()
@@ -368,7 +386,9 @@ class AIUsageLogExportView(APIView):
         qs = AIUsageLog.objects.all().order_by('-timestamp')[:5000]
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=[
-            'timestamp', 'user', 'user_id', 'feature', 'query', 'prompt', 'response', 'tokens_estimate'
+            'timestamp', 'user', 'user_id', 'feature', 'query', 'provider', 'model',
+            'status', 'tokens_estimate', 'tokens_input', 'tokens_output',
+            'prompt', 'response', 'error_message',
         ])
         writer.writeheader()
         for entry in qs:
@@ -378,9 +398,15 @@ class AIUsageLogExportView(APIView):
                 'user_id': entry.user.id if entry.user else '',
                 'feature': entry.feature,
                 'query': entry.query,
+                'provider': entry.provider,
+                'model': entry.model,
+                'status': entry.status,
+                'tokens_estimate': entry.tokens_estimate,
+                'tokens_input': entry.tokens_input,
+                'tokens_output': entry.tokens_output,
                 'prompt': entry.prompt,
                 'response': entry.response,
-                'tokens_estimate': entry.tokens_estimate,
+                'error_message': entry.error_message,
             })
         response = HttpResponse(output.getvalue(), content_type='text/csv')
         response['Content-Disposition'] = 'attachment; filename="ai_usage_audit.csv"'

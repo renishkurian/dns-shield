@@ -156,7 +156,13 @@ class AIUsageLog(models.Model):
     query = models.CharField(max_length=255, help_text='The domain or app name being processed')
     prompt = models.TextField(blank=True)
     response = models.TextField(blank=True)
+    provider = models.CharField(max_length=40, blank=True, default='')
+    model = models.CharField(max_length=100, blank=True, default='')
     tokens_estimate = models.IntegerField(default=0)
+    tokens_input = models.IntegerField(default=0)
+    tokens_output = models.IntegerField(default=0)
+    status = models.CharField(max_length=20, default='ok')  # ok | error
+    error_message = models.TextField(blank=True)
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:

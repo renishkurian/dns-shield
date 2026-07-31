@@ -21,6 +21,7 @@ urlpatterns = [
     path('settings/doh', page_views.settings_doh_view, name='settings-doh'),
     path('settings/backup', page_views.settings_backup_view, name='settings-backup'),
     path('settings/ai', page_views.settings_ai_view, name='settings-ai'),
+    path('settings/ai-usage', page_views.ai_usage_view, name='settings-ai-usage'),
     path('users', page_views.users_view, name='users'),
     path('profile', page_views.profile_view, name='profile'),
 

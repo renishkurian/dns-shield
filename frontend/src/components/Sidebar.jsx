@@ -44,6 +44,7 @@ const navGroups = [
       { label: 'Alerts', href: '/settings/alerts', icon: Bell },
       { label: 'Appearance', href: '/settings/appearance', icon: Palette },
       { label: 'AI Integrations', href: '/settings/ai', icon: Sparkles },
+      { label: 'AI Usage Logs', href: '/settings/ai-usage', icon: ClipboardList },
       { label: 'API Token', href: '/settings/api-token', icon: Key },
     ]
   },

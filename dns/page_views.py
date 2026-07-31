@@ -259,6 +259,13 @@ def _system_log_props(request):
     return {'events': SystemEventSerializer(events, many=True).data}
 
 
+def _ai_usage_props(request):
+    from dns.models import AIUsageLog
+    from dns.serializers import AIUsageLogSerializer
+    logs = AIUsageLog.objects.all().order_by('-timestamp')[:100]
+    return {'logs': AIUsageLogSerializer(logs, many=True).data}
+
+
 def _threat_feeds_props(request):
     from blocks.models import Adlist
     from dns.serializers import AdlistSerializer
@@ -298,6 +305,7 @@ system_health_view = inertia_page('settings/SystemHealth')(lambda r: None)
 api_token_view = inertia_page('settings/ApiToken')(lambda r: None)
 appearance_view = inertia_page('settings/Appearance')(lambda r: None)
 system_log_view = inertia_page('settings/SystemLog', _system_log_props)(lambda r: None)
+ai_usage_view = inertia_page('settings/AIUsage', _ai_usage_props, admin_only=True)(lambda r: None)
 
 # Phase 22-29 Pages
 client_detail_view = inertia_page('ClientDetail', _client_detail_props)(lambda r: None)

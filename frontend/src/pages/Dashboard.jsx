@@ -3,7 +3,7 @@ import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
 import { Activity, Shield, Clock, Percent, TrendingUp, PieChart } from 'lucide-react'
 import DoughnutChart from '../components/DoughnutChart'
-import { usePage } from '@inertiajs/react'
+import { Link } from '@inertiajs/react'
 
 // ─── Stat card ───────────────────────────────────────────────────────────────
 function StatCard({ label, value, sub, icon: Icon, color = 'brand' }) {
@@ -185,18 +185,27 @@ function FrequencyTable({ title, data, color = 'blue' }) {
       <div className="space-y-3">
         {(data || []).map((d, i) => {
           const percent = (d.count / maxCount) * 100
-          return (
-            <div key={i} className="text-xs group">
+          const row = (
+            <>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-slate-300 font-mono truncate mr-2" title={d.domain}>{d.domain}</span>
+                <span className="text-slate-300 font-mono truncate mr-2 group-hover:text-brand-400 transition-colors" title={d.domain}>{d.domain}</span>
                 <span className="text-slate-500 font-medium shrink-0">{d.count?.toLocaleString()} hits</span>
               </div>
               <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
-                <div 
+                <div
                   className={`h-full ${fillColors[color]} rounded-full transition-all duration-500 ease-out`}
                   style={{ width: `${percent}%` }}
                 />
               </div>
+            </>
+          )
+          return d.href ? (
+            <Link key={i} href={d.href} className="text-xs group block cursor-pointer">
+              {row}
+            </Link>
+          ) : (
+            <div key={i} className="text-xs group">
+              {row}
             </div>
           )
         })}
@@ -441,7 +450,15 @@ export default function Dashboard({ user, summary: initialSummary, hourly: initi
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
         <FrequencyTable title="Top Blocked Domains" data={stats.topDomains} color="red" />
         <FrequencyTable title="Top Allowed Domains" data={stats.topAllowedDomains} color="blue" />
-        <FrequencyTable title="Top Clients" data={stats.topClients.map(c => ({ domain: c.name || c.client_ip, count: c.count }))} color="green" />
+        <FrequencyTable
+          title="Top Clients"
+          data={stats.topClients.map(c => ({
+            domain: c.name || c.client_ip,
+            count: c.count,
+            href: `/queries?client=${encodeURIComponent(c.client_ip)}`,
+          }))}
+          color="green"
+        />
       </div>
 
       {/* Live feed */}

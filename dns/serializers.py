@@ -226,5 +226,9 @@ class AIUsageLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AIUsageLog
-        fields = ['id', 'user', 'username', 'feature', 'query', 'prompt', 'response', 'tokens_estimate', 'timestamp']
+        fields = [
+            'id', 'user', 'username', 'feature', 'query', 'prompt', 'response',
+            'provider', 'model', 'tokens_estimate', 'tokens_input', 'tokens_output',
+            'status', 'error_message', 'timestamp',
+        ]
         read_only_fields = ['timestamp']
