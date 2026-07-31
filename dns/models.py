@@ -12,6 +12,7 @@ class QueryLog(models.Model):
         ('blocked_domain', 'Blocked by domain rule'),
         ('blocked_list', 'Blocked by blocklist'),
         ('blocked_ai', 'Blocked by AI heuristic'),
+        ('blocked_client', 'Blocked by client ban'),
         ('nxdomain', 'NXDOMAIN from upstream'),
     ], max_length=20)
     matched_rule = models.CharField(max_length=255, blank=True)
@@ -69,6 +70,7 @@ class Client(models.Model):
     device_type = models.CharField(max_length=20, default='other')
     icon = models.CharField(max_length=50, blank=True)
     comment = models.TextField(blank=True)
+    is_blocked = models.BooleanField(default=False, db_index=True)
 
     def __str__(self):
         return self.name or self.hostname or self.ip

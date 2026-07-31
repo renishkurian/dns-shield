@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
-import { Plus, Trash2, Edit2, Wifi, ExternalLink } from 'lucide-react'
+import { Plus, Wifi, ExternalLink, Ban, ShieldOff } from 'lucide-react'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
@@ -11,6 +11,7 @@ export default function Clients({ user, clients: initial = [] }) {
   const [clients, setClients] = useState(initial)
   const [form, setForm] = useState({ ip: '', name: '', group: '', comment: '' })
   const [showAdd, setShowAdd] = useState(false)
+  const [actingId, setActingId] = useState(null)
   const isAdmin = user?.role === 'admin'
 
   const save = async () => {
@@ -30,6 +31,34 @@ export default function Clients({ user, clients: initial = [] }) {
       })
       setShowAdd(false)
       setForm({ ip: '', name: '', group: '', comment: '' })
+    }
+  }
+
+  const toggleBlock = async (e, client) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const next = !client.is_blocked
+    const label = client.nickname || client.name || client.hostname || client.ip
+    if (next && !confirm(`Block all DNS for ${label}?\n\nEvery DNS query from ${client.ip} will be refused until you unblock.`)) {
+      return
+    }
+    setActingId(client.id)
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+        body: JSON.stringify({ is_blocked: next }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setClients(list => list.map(c => (c.id === client.id ? { ...c, ...data } : c)))
+      } else {
+        alert('Failed to update client block status.')
+      }
+    } catch {
+      alert('Failed to update client block status.')
+    } finally {
+      setActingId(null)
     }
   }
 
@@ -86,19 +115,27 @@ export default function Clients({ user, clients: initial = [] }) {
               <th className="text-left px-4 py-3">IP Address</th>
               <th className="text-left px-4 py-3">Name</th>
               <th className="text-left px-4 py-3">Group</th>
+              <th className="text-left px-4 py-3">Status</th>
               <th className="text-left px-4 py-3">Comment</th>
+              <th className="text-right px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
             {clients.map(c => (
-              <tr 
-                key={c.id} 
-                onClick={() => window.location.href = `/clients/${c.id}`}
-                className="border-b border-slate-800/50 hover:bg-slate-700/20 cursor-pointer group transition-colors"
+              <tr
+                key={c.id}
+                onClick={() => { window.location.href = `/clients/${c.id}` }}
+                className={`border-b border-slate-800/50 hover:bg-slate-700/20 cursor-pointer group transition-colors ${
+                  c.is_blocked ? 'bg-red-500/[0.04]' : ''
+                }`}
               >
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-slate-800/50 flex items-center justify-center text-slate-500 group-hover:text-brand-400 transition-colors shrink-0">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                      c.is_blocked
+                        ? 'bg-red-500/10 text-red-400'
+                        : 'bg-slate-800/50 text-slate-500 group-hover:text-brand-400'
+                    }`}>
                       <Wifi size={14} />
                     </div>
                     <div>
@@ -117,9 +154,40 @@ export default function Clients({ user, clients: initial = [] }) {
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500 text-[10px] italic">{c.comment}</span>
-                    <a href={`/clients/${c.id}`} className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-all">
+                  {c.is_blocked ? (
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 text-[10px] font-bold uppercase tracking-wider">
+                      <Ban size={10} /> Blocked
+                    </span>
+                  ) : (
+                    <span className="text-slate-600 text-[10px] uppercase tracking-wider">Allowed</span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <span className="text-slate-500 text-[10px] italic">{c.comment}</span>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        disabled={actingId === c.id}
+                        onClick={(e) => toggleBlock(e, c)}
+                        title={c.is_blocked ? 'Unblock all DNS for this client' : 'Block all DNS for this client'}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors disabled:opacity-50 ${
+                          c.is_blocked
+                            ? 'text-green-400 hover:bg-green-500/10 border border-green-500/20'
+                            : 'text-red-400 hover:bg-red-500/10 border border-red-500/20'
+                        }`}
+                      >
+                        {c.is_blocked ? <ShieldOff size={12} /> : <Ban size={12} />}
+                        {actingId === c.id ? '…' : c.is_blocked ? 'Unblock' : 'Block'}
+                      </button>
+                    )}
+                    <a
+                      href={`/clients/${c.id}`}
+                      className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-all"
+                      title="Open client detail"
+                    >
                       <ExternalLink size={12} />
                     </a>
                   </div>

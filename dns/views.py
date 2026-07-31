@@ -148,7 +148,7 @@ class StatsSummaryView(APIView):
         since = _get_since(request)
         qs = QueryLog.objects.filter(timestamp__gte=since)
         total = qs.count()
-        blocked = qs.filter(status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai']).count()
+        blocked = qs.filter(status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client']).count()
         avg_latency = qs.aggregate(a=Avg('response_time_ms'))['a'] or 0
         
         # Total domains on adlists (gravity)
@@ -185,7 +185,7 @@ class StatsHourlyView(APIView):
             if val not in data:
                 data[val] = {'label': label, 'allowed': 0, 'blocked': 0, 'hour': val}
             
-            if entry['status'] in ('blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai'):
+            if entry['status'] in ('blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client'):
                 data[val]['blocked'] += entry['count']
             else:
                 data[val]['allowed'] += entry['count']
@@ -199,7 +199,7 @@ class StatsTopDomainsView(APIView):
         data = (
             QueryLog.objects.filter(
                 timestamp__gte=since,
-                status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai']
+                status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client']
             )
             .values('domain')
             .annotate(count=Count('id'))
@@ -275,7 +275,7 @@ class StatsAIThreatInsightView(APIView):
     def get(self, request):
         # We analyze the last 50 blocked queries
         qs = QueryLog.objects.filter(
-            status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai']
+            status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client']
         ).order_by('-timestamp')[:50]
         
         if not qs.exists():
@@ -316,7 +316,7 @@ class QueryLogListView(APIView):
 
         if status_filter == 'blocked':
             qs = qs.filter(status__in=[
-                'blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai',
+                'blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client',
             ])
         elif status_filter:
             qs = qs.filter(status=status_filter)
@@ -1431,7 +1431,7 @@ class StatsHistoryView(APIView):
             .values('day')
             .annotate(
                 total=Count('id'),
-                blocked=Count('id', filter=Q(status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai']))
+                blocked=Count('id', filter=Q(status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client']))
             )
             .order_by('day')
         )
@@ -1512,7 +1512,7 @@ class ClientStatsView(APIView):
         qs = QueryLog.objects.filter(client_ip=client.ip, timestamp__gte=since)
         
         total = qs.count()
-        blocked = qs.filter(status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai']).count()
+        blocked = qs.filter(status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client']).count()
         
         top_domains = (
             qs.values('domain')
@@ -1528,7 +1528,7 @@ class ClientStatsView(APIView):
                 blocked=Count(
                     'id',
                     filter=Q(status__in=[
-                        'blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai',
+                        'blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client',
                     ]),
                 ),
             )
@@ -1540,7 +1540,7 @@ class ClientStatsView(APIView):
             hour = entry['timestamp__hour']
             if hour not in hourly:
                 hourly[hour] = {'hour': hour, 'allowed': 0, 'blocked': 0}
-            if entry['status'] in ('blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai'):
+            if entry['status'] in ('blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client'):
                 hourly[hour]['blocked'] += entry['count']
             else:
                 hourly[hour]['allowed'] += entry['count']

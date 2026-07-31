@@ -112,6 +112,8 @@ function StatusBadge({ status }) {
     blocked_pattern:'badge-red',
     blocked_domain: 'badge-red',
     blocked_list:   'badge-yellow',
+    blocked_ai:     'badge-red',
+    blocked_client: 'badge-red',
     nxdomain:       'badge-gray',
   }
   const labels = {
@@ -119,6 +121,8 @@ function StatusBadge({ status }) {
     blocked_pattern:'Pattern',
     blocked_domain: 'Domain',
     blocked_list:   'List',
+    blocked_ai:     'AI',
+    blocked_client: 'Client',
     nxdomain:       'NXDOMAIN',
   }
   return <span className={map[status] || 'badge-gray'}>{labels[status] || status}</span>

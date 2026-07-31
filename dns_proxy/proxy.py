@@ -40,6 +40,18 @@ class DNSShieldResolver(BaseResolver):
                        resolved_ip=resolved_ip, resolved_by=f"{self.upstream_host} (Shield Off)")
             return reply
 
+        # 0.05 Full client ban — block all DNS for this IP
+        if _is_client_blocked(client_ip):
+            elapsed = (time.monotonic() - start) * 1000
+            dns_logger.log_query(domain, client_ip, 'blocked_client', qtype,
+                                 matched_rule='Client blocked', response_time_ms=elapsed,
+                                 resolved_by='Blocked (Client)')
+            _broadcast(domain, client_ip, 'blocked_client', qtype, 'Client blocked', elapsed,
+                       resolved_by='Blocked (Client)')
+            reply = request.reply()
+            reply.header.rcode = dnslib.RCODE.NXDOMAIN
+            return reply
+
         # 0.1 Check Cache
         cached_resp = dns_cache.get(request)
         if cached_resp:
@@ -138,6 +150,27 @@ class DNSShieldResolver(BaseResolver):
             dns_cache.put(request, reply)
         return reply
 
+
+
+_blocked_clients_cache = {
+    'ips': set(),
+    'last_check': 0,
+}
+
+
+def _is_client_blocked(client_ip: str) -> bool:
+    """Return True if this client IP is fully DNS-banned. Refreshes every 5s."""
+    now = time.time()
+    if now - _blocked_clients_cache['last_check'] >= 5:
+        try:
+            from dns.models import Client
+            _blocked_clients_cache['ips'] = set(
+                Client.objects.filter(is_blocked=True).values_list('ip', flat=True)
+            )
+        except Exception as exc:
+            logger.error(f"Failed to refresh blocked clients: {exc}")
+        _blocked_clients_cache['last_check'] = now
+    return client_ip in _blocked_clients_cache['ips']
 
 
 def _resolve_identity(client_ip: str) -> int | None:

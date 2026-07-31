@@ -3,6 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from django.conf import settings
+from django.contrib.staticfiles.storage import staticfiles_storage
 from django.templatetags.static import static
 
 
@@ -40,11 +41,36 @@ def clear_vite_manifest_cache():
     _load_manifest.cache_clear()
 
 
+def _asset_url(relative_path: str) -> str:
+    """
+    Resolve a path under static/ via Django storage when possible.
+    Fall back to STATIC_URL + path so a stale ManifestStaticFilesStorage
+    map (after vite rebuild, before collectstatic) does not 500 the page.
+    """
+    path = relative_path.lstrip('/')
+    try:
+        return staticfiles_storage.url(path)
+    except ValueError:
+        pass
+    try:
+        return static(path)
+    except ValueError:
+        pass
+    base = settings.STATIC_URL or '/static/'
+    if not base.endswith('/'):
+        base += '/'
+    return f'{base}{path}'
+
+
 def get_vite_assets():
     """
     Return {'js': '/static/dist/assets/main-HASH.js', 'css': '...'}
     Falls back to unhashed names if manifest is missing.
     """
+    # Always re-read in DEBUG so new vite builds show up without restart.
+    if settings.DEBUG:
+        clear_vite_manifest_cache()
+
     manifest = _load_manifest()
     entry = None
     for key, meta in manifest.items():
@@ -57,12 +83,12 @@ def get_vite_assets():
         entry = manifest['src/main.jsx']
 
     if entry and entry.get('file'):
-        js = static(f"dist/{entry['file']}")
+        js = _asset_url(f"dist/{entry['file']}")
         css_files = entry.get('css') or []
-        css = static(f"dist/{css_files[0]}") if css_files else ''
+        css = _asset_url(f"dist/{css_files[0]}") if css_files else ''
         return {'js': js, 'css': css}
 
     return {
-        'js': static('dist/assets/main.js'),
-        'css': static('dist/assets/main.css'),
+        'js': _asset_url('dist/assets/main.js'),
+        'css': _asset_url('dist/assets/main.css'),
     }

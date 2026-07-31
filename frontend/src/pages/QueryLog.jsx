@@ -14,11 +14,12 @@ const STATUS_LABELS = {
   blocked_domain:  { label: 'Blocked (Domain)',  cls: 'badge-red' },
   blocked_list:    { label: 'Blocked (List)',    cls: 'badge-red' },
   blocked_ai:      { label: 'Blocked (AI)',      cls: 'badge-red' },
+  blocked_client:  { label: 'Blocked (Client)',  cls: 'badge-red' },
   nxdomain:        { label: 'NXDOMAIN',          cls: 'badge-gray' },
 }
 
 const BLOCKED_STATUSES = new Set([
-  'blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai',
+  'blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client',
 ])
 
 const RESOLUTION_ICONS = {
@@ -27,6 +28,7 @@ const RESOLUTION_ICONS = {
   'Blocked (Domain)': Shield,
   'Blocked (Pattern)': Shield,
   'Blocked (AI)': Sparkles,
+  'Blocked (Client)': Shield,
 }
 
 function getCsrf() {
