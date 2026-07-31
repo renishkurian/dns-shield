@@ -16,13 +16,23 @@ const PROVIDERS = [
 ]
 
 const AUTO_INTERVALS = [
-  { value: '1', label: 'Every 1 hour' },
-  { value: '2', label: 'Every 2 hours' },
-  { value: '6', label: 'Every 6 hours' },
-  { value: '12', label: 'Every 12 hours' },
-  { value: '24', label: 'Daily (every 24 hours)' },
-  { value: '168', label: 'Weekly (every 7 days)' },
+  { value: '1', label: 'Every hour', short: '1h' },
+  { value: '2', label: 'Every 2 hours', short: '2h' },
+  { value: '4', label: 'Every 4 hours', short: '4h' },
+  { value: '6', label: 'Every 6 hours', short: '6h' },
+  { value: '12', label: 'Every 12 hours', short: '12h' },
+  { value: '24', label: 'Daily', short: '1d' },
+  { value: '168', label: 'Weekly', short: '1w' },
 ]
+
+function nextRunLabel(lastRunIso, intervalHours) {
+  const hours = Number(intervalHours) || 24
+  if (!lastRunIso) return 'Next run: on next scheduler tick (within ~1 min after enable/save)'
+  const last = new Date(lastRunIso)
+  if (Number.isNaN(last.getTime())) return null
+  const next = new Date(last.getTime() + hours * 3600 * 1000)
+  return `Next run: ${next.toLocaleString()}`
+}
 
 export default function AI({ user: currentUser }) {
   const [enabled, setEnabled] = useState(false)
@@ -304,8 +314,8 @@ export default function AI({ user: currentUser }) {
             <div className="min-w-0 flex-1">
               <h3 className="font-bold text-white">Auto Intelligence Schedule</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Periodically profile recent DNS traffic with your configured AI provider.
-                Results appear in Intelligence Log → AI Audits.
+                How often DNS Shield profiles recent traffic (AUTO INTELLIGENCE in AI Usage Logs).
+                High-trust domains are skipped automatically.
               </p>
             </div>
           </div>
@@ -336,28 +346,40 @@ export default function AI({ user: currentUser }) {
           </div>
 
           <div className={!autoEnabled ? 'opacity-50 pointer-events-none' : ''}>
-            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
               Run frequency
             </label>
-            <select
-              className="input w-full md:w-1/2"
-              value={autoInterval}
-              onChange={e => setAutoInterval(e.target.value)}
-            >
-              {AUTO_INTERVALS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-            {lastRun && (
-              <p className="text-[10px] text-slate-500 mt-2">
-                Last run: {new Date(lastRun).toLocaleString()}
-              </p>
-            )}
+            <div className="flex flex-wrap gap-2">
+              {AUTO_INTERVALS.map(opt => {
+                const active = String(autoInterval) === String(opt.value)
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setAutoInterval(opt.value)}
+                    className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${
+                      active
+                        ? 'bg-brand-500/20 border-brand-500/50 text-brand-300'
+                        : 'bg-slate-900/40 border-slate-700/60 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                    }`}
+                    title={opt.label}
+                  >
+                    <span className="block">{opt.short}</span>
+                    <span className="block text-[10px] font-normal opacity-80 mt-0.5">{opt.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="mt-3 space-y-1 text-[11px] text-slate-500">
+              {lastRun && <p>Last run: {new Date(lastRun).toLocaleString()}</p>}
+              {autoEnabled && <p>{nextRunLabel(lastRun, autoInterval)}</p>}
+            </div>
           </div>
 
           <div className="pt-4 border-t border-slate-700/50 flex flex-wrap items-center justify-between gap-3">
             <p className="text-[11px] text-slate-500 max-w-md">
-              Save configuration to persist the schedule. Use Run now to trigger an immediate profile pass.
+              Click <strong className="text-slate-400 font-semibold">Save schedule</strong> after changing frequency.
+              Use Run now for an immediate pass.
             </p>
             <div className="flex gap-2">
               <button
