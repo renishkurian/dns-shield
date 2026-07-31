@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
 import { 
-  Bell, ShieldAlert, Cpu, Download, 
+  Bell, ShieldAlert, Cpu, Download, Search,
   Clock, Filter, Trash2, CheckCircle, 
   AlertCircle, Info, Database, Wifi
 } from 'lucide-react'

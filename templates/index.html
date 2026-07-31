@@ -17,9 +17,9 @@
   <script type="module" src="http://localhost:5173/@vite/client"></script>
   <script type="module" src="http://localhost:5173/src/main.jsx"></script>
   {% else %}
-  <!-- Production: compiled assets -->
-  <link rel="stylesheet" href="{% static 'dist/assets/main.css' %}" />
-  <script type="module" src="{% static 'dist/assets/main.js' %}"></script>
+  <!-- Production: hashed Vite build (cache-busting) -->
+  <link rel="stylesheet" href="{{ vite_css }}" />
+  <script type="module" src="{{ vite_js }}"></script>
   {% endif %}
 </head>
 
@@ -34,7 +34,7 @@
     window.__inertia_initial_page = {
       component: "{{ page }}",
       props: {{ props | safe }},
-    url: window.location.href,
+      url: window.location.href,
       version: "1"
     };
   </script>

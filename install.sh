@@ -113,8 +113,9 @@ server {
     # Static files served directly
     location /static/ {
         alias /opt/dns-shield/staticfiles/;
-        expires 30d;
-        add_header Cache-Control "public, immutable";
+        # Hashed Vite assets can be cached long; avoid immutable on unhashed fallbacks
+        expires 7d;
+        add_header Cache-Control "public";
     }
 
     location /media/ {

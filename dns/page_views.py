@@ -43,6 +43,8 @@ def render_inertia(request, page_name, props):
     Returns JSON if X-Inertia header is present, else renders index.html.
     """
     from django.conf import settings
+    from dns.vite_assets import get_vite_assets
+
     props = {**props, 'debug': bool(settings.DEBUG)}
     page_data = {
         'component': page_name,
@@ -54,10 +56,14 @@ def render_inertia(request, page_name, props):
     if request.headers.get('X-Inertia'):
         return JsonResponse(page_data, headers={'X-Inertia': 'true'})
     
+    assets = get_vite_assets()
     return render(request, 'index.html', {
         'page': page_name,
         'props': json.dumps(props, default=str),
         'page_json': json.dumps(page_data, default=str),
+        'vite_js': assets['js'],
+        'vite_css': assets['css'],
+        'debug': bool(settings.DEBUG),
     })
 
 
