@@ -22,7 +22,7 @@ from rest_framework.views import APIView
 
 from dns.models import (
     QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer,
-    ScheduledRule, AlertConfig, SystemEvent, AIUsageLog
+    ScheduledRule, AlertConfig, SystemEvent, AIUsageLog, DomainTrust
 )
 from dns.permissions import IsAdminRole
 from dns.serializers import (
@@ -32,7 +32,7 @@ from dns.serializers import (
     BlockGroupSerializer, VPNServerSerializer, VPNPeerSerializer,
     AppCategorySerializer, AppControlSerializer,
     ScheduledRuleSerializer, AlertConfigSerializer, SystemEventSerializer,
-    AIUsageLogSerializer
+    AIUsageLogSerializer, DomainTrustSerializer
 )
 
 class AIUsageLogListView(APIView):
@@ -63,6 +63,39 @@ class AIUsageLogListView(APIView):
     def delete(self, request):
         AIUsageLog.objects.all().delete()
         return Response(status=204)
+
+
+class DomainTrustListView(APIView):
+    """List / clear AI domain trust scores."""
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        qs = DomainTrust.objects.all().order_by('-trust_score', 'domain')
+        q = request.query_params.get('q')
+        label = request.query_params.get('label')
+        high_only = request.query_params.get('high_only') in ('1', 'true', 'yes')
+        if q:
+            qs = qs.filter(Q(domain__icontains=q) | Q(reason__icontains=q) | Q(source__icontains=q))
+        if label:
+            qs = qs.filter(label=label)
+        if high_only:
+            qs = qs.filter(trust_score__gte=70)
+        return Response(DomainTrustSerializer(qs[:2000], many=True).data)
+
+    def delete(self, request):
+        DomainTrust.objects.all().delete()
+        return Response(status=204)
+
+
+class DomainTrustDetailView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def delete(self, request, pk):
+        deleted, _ = DomainTrust.objects.filter(pk=pk).delete()
+        if not deleted:
+            return Response({'error': 'Not found'}, status=404)
+        return Response(status=204)
+
 
 from blocks.models import BlockedDomain, Pattern, Adlist, GravityDomain, AllowedDomain, BlockGroup, AppCategory, AppControl
 from users.models import UserProfile
@@ -273,31 +306,69 @@ class StatsUpstreamServersView(APIView):
 
 class StatsAIThreatInsightView(APIView):
     def get(self, request):
-        # We analyze the last 50 blocked queries
+        from dns.domain_trust import (
+            dedupe_domains, trusted_domain_set, upsert_domain_trust, HIGH_TRUST_THRESHOLD,
+        )
+        from dns.ai_service import ask_ai
+
+        # Last 200 blocked queries → unique domains; skip ones already high-trust
         qs = QueryLog.objects.filter(
             status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client']
-        ).order_by('-timestamp')[:50]
-        
+        ).order_by('-timestamp')[:200]
+
         if not qs.exists():
-            return Response({'insight': 'No threats detected recently.', 'score': 0})
-            
-        domains = [q.domain for q in qs]
-        from dns.ai_service import ask_ai
-        
+            return Response({'insight': 'No threats detected recently.', 'score': 0, 'domains_analyzed': 0})
+
+        unique_all = dedupe_domains([q.domain for q in qs])
+        trusted = trusted_domain_set(HIGH_TRUST_THRESHOLD)
+        skipped_trusted = [d for d in unique_all if d in trusted]
+        domains = [d for d in unique_all if d not in trusted][:50]
+
+        if not domains:
+            return Response({
+                'insight': 'All recent blocked domains are already high-trust; nothing new to analyze.',
+                'score': 0,
+                'domains_analyzed': 0,
+                'skipped_trusted': len(skipped_trusted),
+            })
+
         system_prompt = (
-            "You are a network security analyst. Analyze a list of 50 blocked DNS domains "
+            "You are a network security analyst. Analyze a deduplicated list of blocked DNS domains "
             "and categorize the current threat level of the network. "
             "Return a JSON object with: 'insight' (short human sentence summary), "
-            "'risk_score' (0-100), and 'top_categories' (array of strings, e.g. ['Adware', 'Phishing']). "
+            "'risk_score' (0-100), 'top_categories' (array of strings, e.g. ['Adware', 'Phishing']), "
+            "and 'domain_scores' (array of up to 25 objects: "
+            "{'domain': str, 'trust_score': 0-100 where 100=very safe/benign, "
+            "'label': 'safe'|'tracking'|'malicious'|'unknown', 'reason': short string}). "
             "Do not return markdown, just raw JSON."
         )
-        user_prompt = f"Domains blocked recently: {', '.join(domains)}"
-        
+        user_prompt = f"Unique domains blocked recently ({len(domains)}): {', '.join(domains)}"
+
         try:
-            res_text = ask_ai(system_prompt, user_prompt, feature='threat_insight')
-            # Clean possible markdown
-            clean_text = res_text.replace("```json", "").replace("```", "").strip()
+            res_text = ask_ai(
+                system_prompt, user_prompt,
+                feature='threat_insight', query=f'{len(domains)} domains',
+            )
+            clean_text = res_text.replace('```json', '').replace('```', '').strip()
             data = json.loads(clean_text)
+            saved = 0
+            for item in data.get('domain_scores') or []:
+                if not isinstance(item, dict) or not item.get('domain'):
+                    continue
+                try:
+                    upsert_domain_trust(
+                        item['domain'],
+                        item.get('trust_score', 50),
+                        label=item.get('label') or 'unknown',
+                        reason=item.get('reason') or '',
+                        source='threat_insight',
+                    )
+                    saved += 1
+                except Exception:
+                    pass
+            data['domains_analyzed'] = len(domains)
+            data['skipped_trusted'] = len(skipped_trusted)
+            data['trust_scores_saved'] = saved
             return Response(data)
         except Exception as e:
             return Response({'error': str(e)}, status=500)
@@ -377,6 +448,32 @@ class QueryLogExportView(APIView):
         response = HttpResponse(output.getvalue(), content_type='text/csv')
         response['Content-Disposition'] = 'attachment; filename="dns_queries.csv"'
         return response
+
+
+class AIRunProfilerView(APIView):
+    """Manually trigger the auto intelligence behavioral profiler."""
+    permission_classes = [IsAdminRole]
+
+    def post(self, request):
+        from dns.ai_worker import run_profiler
+        from dns.ai_service import get_ai_config
+
+        enabled, provider, _, _ = get_ai_config()
+        if not enabled or not provider:
+            return Response(
+                {'error': 'Enable Smart AI and choose a provider first.'},
+                status=400,
+            )
+        try:
+            message = run_profiler(force=True)
+            last = SystemSetting.objects.filter(key='ai_auto_last_run').values_list('value', flat=True).first()
+            return Response({
+                'ok': True,
+                'message': message,
+                'last_run': last or '',
+            })
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
 
 
 class AIUsageLogExportView(APIView):
@@ -823,14 +920,58 @@ class AIExplainView(APIView):
         domain = request.query_params.get('domain')
         if not domain:
             return Response({'error': 'domain parameter required'}, status=400)
-            
-        system_prompt = "You are a network security analyst. Explain what this domain is used for concisely. Tell me if it's safe, tracking, or malicious."
-        user_prompt = f"Domain: {domain}"
-        
+
+        from dns.domain_trust import (
+            get_domain_trust, upsert_domain_trust, parse_label_from_text,
+            normalize_domain,
+        )
         from dns.ai_service import ask_ai
+
+        domain = normalize_domain(domain)
+        existing = get_domain_trust(domain)
+        # Skip re-asking AI for high-trust domains unless ?refresh=1
+        refresh = request.query_params.get('refresh') in ('1', 'true', 'yes')
+        if existing and existing.get('is_high_trust') and not refresh:
+            return Response({
+                'explanation': existing.get('reason') or f"Cached as {existing['label']} (trust {existing['trust_score']}).",
+                'trust': existing,
+                'cached': True,
+            })
+
+        system_prompt = (
+            "You are a network security analyst. Explain what this domain is used for concisely. "
+            "Return ONLY raw JSON (no markdown) with keys: "
+            "explanation (string), trust_score (0-100, 100=very safe/benign), "
+            "label (one of: safe, tracking, malicious, unknown)."
+        )
+        user_prompt = f'Domain: {domain}'
+
         try:
-            explanation = ask_ai(system_prompt, user_prompt, user=request.user, feature='domain_explain', query=domain)
-            return Response({'explanation': explanation})
+            raw = ask_ai(system_prompt, user_prompt, user=request.user, feature='domain_explain', query=domain)
+            explanation = raw
+            trust_score = None
+            label = 'unknown'
+            try:
+                clean = raw.replace('```json', '').replace('```', '').strip()
+                data = json.loads(clean)
+                explanation = data.get('explanation') or raw
+                trust_score = data.get('trust_score')
+                label = data.get('label') or 'unknown'
+            except Exception:
+                label, trust_score = parse_label_from_text(raw)
+
+            trust = upsert_domain_trust(
+                domain,
+                50 if trust_score is None else trust_score,
+                label=label,
+                reason=explanation,
+                source='domain_explain',
+            )
+            return Response({
+                'explanation': explanation,
+                'trust': trust,
+                'cached': False,
+            })
         except Exception as e:
             return Response({'error': str(e)}, status=500)
 
@@ -1699,6 +1840,7 @@ class DomainAnalyticsView(APIView):
 
         # Check current rules
         from dns_proxy.matcher import get_matcher
+        from dns.domain_trust import get_domain_trust
         matcher = get_matcher()
         is_blocked = not matcher.is_allowed(domain) and (
             matcher.match_pattern(domain) or
@@ -1712,7 +1854,8 @@ class DomainAnalyticsView(APIView):
             'status_split': list(status_split),
             'top_clients': list(top_clients),
             'history': history,
-            'is_blocked': is_blocked
+            'is_blocked': is_blocked,
+            'trust': get_domain_trust(domain),
         })
 
 

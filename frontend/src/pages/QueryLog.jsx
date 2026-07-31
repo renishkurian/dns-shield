@@ -39,6 +39,7 @@ function QueryInspector({ entry, onClose }) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [aiExplanation, setAiExplanation] = useState(null)
+  const [aiTrust, setAiTrust] = useState(null)
   const [askingAi, setAskingAi] = useState(false)
 
   const { domain } = entry
@@ -46,6 +47,7 @@ function QueryInspector({ entry, onClose }) {
   useEffect(() => {
     setResult(null)
     setAiExplanation(null)
+    setAiTrust(null)
     if (!domain) return
     fetch('/api/blocks/domains/test', {
       method: 'POST',
@@ -83,8 +85,13 @@ function QueryInspector({ entry, onClose }) {
     try {
       const res = await fetch(`/api/ai/explain?domain=${encodeURIComponent(domain)}`)
       const data = await res.json()
-      if (res.ok) setAiExplanation(data.explanation)
-      else setAiExplanation(`Error: ${data.error}`)
+      if (res.ok) {
+        setAiExplanation(data.explanation)
+        setAiTrust(data.trust || null)
+      } else {
+        setAiExplanation(`Error: ${data.error}`)
+        setAiTrust(null)
+      }
     } finally {
       setAskingAi(false)
     }
@@ -175,8 +182,13 @@ function QueryInspector({ entry, onClose }) {
             </button>
           ) : (
             <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg text-xs leading-relaxed text-slate-300">
-              <div className="flex items-center gap-2 font-bold text-purple-400 mb-2">
-                <Sparkles size={12} /> AI Insight
+              <div className="flex items-center justify-between gap-2 font-bold text-purple-400 mb-2">
+                <span className="flex items-center gap-2"><Sparkles size={12} /> AI Insight</span>
+                {aiTrust && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Trust {aiTrust.trust_score}/100 · {aiTrust.label}
+                  </span>
+                )}
               </div>
               {aiExplanation}
             </div>

@@ -172,3 +172,26 @@ class AIUsageLog(models.Model):
 
     def __str__(self):
         return f"AI Query: {self.query} ({self.feature}) @ {self.timestamp}"
+
+
+class DomainTrust(models.Model):
+    """Persisted AI/heuristic trust score per DNS name (0–100, higher = safer)."""
+    LABELS = [
+        ('safe', 'Safe'),
+        ('tracking', 'Tracking'),
+        ('malicious', 'Malicious'),
+        ('unknown', 'Unknown'),
+    ]
+    domain = models.CharField(max_length=255, unique=True, db_index=True)
+    trust_score = models.PositiveSmallIntegerField(default=50, db_index=True)
+    label = models.CharField(max_length=20, choices=LABELS, default='unknown')
+    reason = models.TextField(blank=True)
+    source = models.CharField(max_length=40, blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-trust_score', 'domain']
+
+    def __str__(self):
+        return f'{self.domain} ({self.trust_score})'

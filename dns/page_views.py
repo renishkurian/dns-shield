@@ -268,6 +268,10 @@ def _ai_usage_props(request):
     return {'logs': []}
 
 
+def _trusted_dns_props(request):
+    return {'domains': []}
+
+
 def _threat_feeds_props(request):
     from blocks.models import Adlist
     from dns.serializers import AdlistSerializer
@@ -308,6 +312,7 @@ api_token_view = inertia_page('settings/ApiToken')(lambda r: None)
 appearance_view = inertia_page('settings/Appearance')(lambda r: None)
 system_log_view = inertia_page('settings/SystemLog', _system_log_props)(lambda r: None)
 ai_usage_view = inertia_page('settings/AIUsage', _ai_usage_props, admin_only=True)(lambda r: None)
+trusted_dns_view = inertia_page('settings/TrustedDNS', _trusted_dns_props, admin_only=True)(lambda r: None)
 
 # Phase 22-29 Pages
 client_detail_view = inertia_page('ClientDetail', _client_detail_props)(lambda r: None)

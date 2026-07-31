@@ -142,6 +142,9 @@ urlpatterns = [
     # AI Auditing
     path('ai/usage', views.AIUsageLogListView.as_view()),
     path('ai/usage/export', views.AIUsageLogExportView.as_view()),
+    path('ai/run-profiler', views.AIRunProfilerView.as_view()),
+    path('ai/trusted-dns', views.DomainTrustListView.as_view()),
+    path('ai/trusted-dns/<int:pk>', views.DomainTrustDetailView.as_view()),
 
     # Direct Data Portability
     path('queries/export', views.QueryLogExportView.as_view()),

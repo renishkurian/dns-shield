@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
-import { Sparkles, Save, Shield, Plus, Pencil, Trash2, Star, X } from 'lucide-react'
+import { Sparkles, Save, Shield, Plus, Pencil, Trash2, Star, X, Clock, Play } from 'lucide-react'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
@@ -15,12 +15,25 @@ const PROVIDERS = [
   { value: 'claude_browser', label: 'Claude Browser Wrapper', needsKey: false, modelHint: 'claude-sonnet-5' },
 ]
 
+const AUTO_INTERVALS = [
+  { value: '1', label: 'Every 1 hour' },
+  { value: '2', label: 'Every 2 hours' },
+  { value: '6', label: 'Every 6 hours' },
+  { value: '12', label: 'Every 12 hours' },
+  { value: '24', label: 'Daily (every 24 hours)' },
+  { value: '168', label: 'Weekly (every 7 days)' },
+]
+
 export default function AI({ user: currentUser }) {
   const [enabled, setEnabled] = useState(false)
   const [provider, setProvider] = useState('openai')
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('')
+  const [autoEnabled, setAutoEnabled] = useState(false)
+  const [autoInterval, setAutoInterval] = useState('24')
+  const [lastRun, setLastRun] = useState('')
   const [saving, setSaving] = useState(false)
+  const [running, setRunning] = useState(false)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
 
@@ -47,6 +60,9 @@ export default function AI({ user: currentUser }) {
         setProvider(data.ai_provider || 'openai')
         setApiKey(data.ai_api_key || '')
         setModel(data.ai_model || '')
+        setAutoEnabled(data.ai_auto_enabled === 'true')
+        setAutoInterval(data.ai_auto_interval_hours || '24')
+        setLastRun(data.ai_auto_last_run || '')
       })
     loadAccounts()
   }, [])
@@ -64,6 +80,8 @@ export default function AI({ user: currentUser }) {
           ai_provider: provider,
           ai_api_key: apiKey,
           ai_model: model || meta.modelHint,
+          ai_auto_enabled: autoEnabled ? 'true' : 'false',
+          ai_auto_interval_hours: autoInterval,
         }),
       })
       if (!res.ok) {
@@ -73,6 +91,27 @@ export default function AI({ user: currentUser }) {
       }
     } finally {
       setSaving(false)
+    }
+  }
+
+  const runNow = async () => {
+    setRunning(true)
+    setMsg('')
+    setErr('')
+    try {
+      const res = await fetch('/api/ai/run-profiler', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': getCsrf() },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setErr(data.error || 'Failed to start profiler.')
+        return
+      }
+      setLastRun(data.last_run || new Date().toISOString())
+      setMsg(data.message || 'Auto intelligence run started.')
+    } finally {
+      setRunning(false)
     }
   }
 
@@ -257,6 +296,90 @@ export default function AI({ user: currentUser }) {
           </div>
         </div>
 
+        <div className={`card space-y-5 mb-6 transition-all ${!enabled ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-brand-500/15 text-brand-400 flex items-center justify-center shrink-0">
+              <Clock size={18} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="font-bold text-white">Auto Intelligence Schedule</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Periodically profile recent DNS traffic with your configured AI provider.
+                Results appear in Intelligence Log → AI Audits.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between p-4 bg-slate-900/50 border border-slate-700/50 rounded-xl">
+            <div>
+              <h4 className="font-semibold text-white text-sm">Enable scheduled runs</h4>
+              <p className="text-xs text-slate-400 mt-0.5">Requires Smart AI to be enabled above.</p>
+            </div>
+            <div className="relative">
+              <input
+                type="checkbox"
+                checked={autoEnabled}
+                onChange={e => setAutoEnabled(e.target.checked)}
+                className="peer sr-only"
+                id="toggle-ai-auto"
+              />
+              <label htmlFor="toggle-ai-auto" className={`
+                block w-12 h-6 rounded-full cursor-pointer transition-colors
+                ${autoEnabled ? 'bg-brand-500' : 'bg-slate-700'}
+              `}>
+                <div className={`
+                  absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform
+                  ${autoEnabled ? 'translate-x-6' : 'translate-x-0'}
+                `} />
+              </label>
+            </div>
+          </div>
+
+          <div className={!autoEnabled ? 'opacity-50 pointer-events-none' : ''}>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+              Run frequency
+            </label>
+            <select
+              className="input w-full md:w-1/2"
+              value={autoInterval}
+              onChange={e => setAutoInterval(e.target.value)}
+            >
+              {AUTO_INTERVALS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            {lastRun && (
+              <p className="text-[10px] text-slate-500 mt-2">
+                Last run: {new Date(lastRun).toLocaleString()}
+              </p>
+            )}
+          </div>
+
+          <div className="pt-4 border-t border-slate-700/50 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[11px] text-slate-500 max-w-md">
+              Save configuration to persist the schedule. Use Run now to trigger an immediate profile pass.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={runNow}
+                disabled={running || !enabled}
+                className="btn-ghost text-xs"
+              >
+                <Play size={14} /> {running ? 'Running…' : 'Run now'}
+              </button>
+              <button
+                type="button"
+                onClick={saveSettings}
+                disabled={saving}
+                className="btn-primary text-xs"
+              >
+                <Save size={14} /> {saving ? 'Saving…' : 'Save schedule'}
+              </button>
+            </div>
+          </div>
+        </div>
+
         {provider === 'claude_browser' && enabled && (
           <div className="card space-y-4">
             <div className="flex items-center justify-between gap-3">
@@ -264,7 +387,8 @@ export default function AI({ user: currentUser }) {
                 <h3 className="font-bold text-white text-sm">Claude Browser Accounts</h3>
                 <p className="text-xs text-slate-500 mt-1">
                   Session cookie + organization ID from claude.ai (not Anthropic API keys).
-                  The default account is used for all AI features.
+                  Default is tried first; if it fails (expired session, rate limit, bad org),
+                  the next account is used automatically.
                 </p>
               </div>
               {!editing && (

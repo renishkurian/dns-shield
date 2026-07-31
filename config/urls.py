@@ -22,6 +22,7 @@ urlpatterns = [
     path('settings/backup', page_views.settings_backup_view, name='settings-backup'),
     path('settings/ai', page_views.settings_ai_view, name='settings-ai'),
     path('settings/ai-usage', page_views.ai_usage_view, name='settings-ai-usage'),
+    path('settings/trusted-dns', page_views.trusted_dns_view, name='settings-trusted-dns'),
     path('users', page_views.users_view, name='users'),
     path('profile', page_views.profile_view, name='profile'),
 

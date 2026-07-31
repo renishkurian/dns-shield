@@ -55,9 +55,12 @@ export default function DomainDetail({
   top_clients = [],
   history = [],
   is_blocked = false,
+  trust = null,
 }) {
   const handleBack = () => window.history.back()
   const hits = total_hits_30d || 0
+  const trustScore = trust?.trust_score
+  const trustLabel = trust?.label
 
   return (
     <Layout user={user} currentPath="/queries" title={`Domain: ${domain || 'Unknown'}`}>
@@ -80,11 +83,22 @@ export default function DomainDetail({
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white mb-1">{domain || 'Unknown domain'}</h1>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <span className={`badge-${is_blocked ? 'red' : 'green'} flex items-center gap-1`}>
                     {is_blocked ? <Shield size={12} /> : <CheckCircle size={12} />}
                     {is_blocked ? 'Currently Blocked' : 'Currently Allowed'}
                   </span>
+                  {trust && (
+                    <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                      trustScore >= 70
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                        : trustScore <= 30
+                          ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                          : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                    }`}>
+                      Trust {trustScore}/100 · {trustLabel || 'unknown'}
+                    </span>
+                  )}
                   {domain && (
                     <a href={`http://${domain}`} target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-white flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest">
                       Open Site <ExternalLink size={10} />
@@ -104,8 +118,22 @@ export default function DomainDetail({
                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Unique Clients</p>
                 <p className="text-xl font-bold text-white">{top_clients.length}</p>
               </div>
+              {trust && (
+                <>
+                  <div className="w-px bg-slate-800" />
+                  <div className="text-center">
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Trust Score</p>
+                    <p className="text-xl font-bold text-white">{trustScore}</p>
+                  </div>
+                </>
+              )}
             </div>
           </div>
+          {trust?.reason && (
+            <p className="mt-4 text-xs text-slate-500 border-t border-slate-800 pt-4 leading-relaxed">
+              {trust.reason}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
@@ -200,5 +228,6 @@ DomainDetail.propTypes = {
   status_split: PropTypes.array,
   top_clients: PropTypes.array,
   history: PropTypes.array,
-  is_blocked: PropTypes.bool
+  is_blocked: PropTypes.bool,
+  trust: PropTypes.object,
 }

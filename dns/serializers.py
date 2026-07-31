@@ -5,7 +5,7 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from dns.models import (
     QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer,
-    ScheduledRule, AlertConfig, SystemEvent, AIUsageLog
+    ScheduledRule, AlertConfig, SystemEvent, AIUsageLog, DomainTrust
 )
 from blocks.models import BlockedDomain, Pattern, Adlist, GravityDomain, AllowedDomain, BlockGroup, AppCategory, AppControl
 from users.models import UserProfile
@@ -233,3 +233,18 @@ class AIUsageLogSerializer(serializers.ModelSerializer):
             'status', 'error_message', 'timestamp',
         ]
         read_only_fields = ['timestamp']
+
+
+class DomainTrustSerializer(serializers.ModelSerializer):
+    is_high_trust = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DomainTrust
+        fields = [
+            'id', 'domain', 'trust_score', 'label', 'reason', 'source',
+            'updated_at', 'created_at', 'is_high_trust',
+        ]
+        read_only_fields = ['updated_at', 'created_at']
+
+    def get_is_high_trust(self, obj):
+        return obj.trust_score >= 70

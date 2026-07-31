@@ -45,6 +45,89 @@ def get_default_claude_account() -> dict | None:
     return accounts[0] if accounts else None
 
 
+def ordered_claude_accounts() -> list:
+    """Default account first, then the rest — used for credential failover."""
+    accounts = []
+    for a in get_claude_browser_accounts():
+        if not isinstance(a, dict):
+            continue
+        if not (a.get('session_key') or '').strip():
+            continue
+        if not (a.get('org_id') or '').strip():
+            continue
+        accounts.append(a)
+    if not accounts:
+        return []
+    defaults = [a for a in accounts if a.get('is_default')]
+    others = [a for a in accounts if not a.get('is_default')]
+    # Preserve stored order within each group
+    return defaults + others
+
+
+def _ask_via_claude_browser(system_prompt: str, user_prompt: str, model: str, feature: str):
+    """
+    Call Claude.ai via browser wrapper. If multiple accounts are configured,
+    try the default first and automatically fall through to the next on failure
+    (expired session, bad org, rate limit, empty reply, etc.).
+    Returns (response_text, tokens_in, tokens_out, used_model_label).
+    """
+    from dns.claude_browser import create_conversation, ask_claude, compose_prompt
+
+    accounts = ordered_claude_accounts()
+    if not accounts:
+        raise ValueError(
+            'No Claude browser accounts configured. '
+            'Add a session key + organization ID under AI settings.'
+        )
+
+    used_model = model or 'claude-sonnet-5'
+    prompt = compose_prompt(system_prompt, user_prompt)
+    multi = len(accounts) > 1
+    # Fail over quickly when backups exist; single account keeps normal retries.
+    create_retries = 1 if multi else 3
+    ask_retries = 1 if multi else 4
+    errors = []
+
+    for account in accounts:
+        name = (account.get('name') or account.get('id') or 'account').strip()
+        session_key = (account.get('session_key') or '').strip()
+        org_id = (account.get('org_id') or '').strip()
+        try:
+            conv_id = create_conversation(
+                session_key,
+                org_id,
+                title=f'DNS Shield ({feature})',
+                model=used_model,
+                system_prompt='',
+                max_retries=create_retries,
+            )
+            response_text, tokens_in, tokens_out = ask_claude(
+                session_key,
+                org_id,
+                prompt=prompt,
+                conv_id=conv_id,
+                model=used_model,
+                minimal_tools=True,
+                max_retries=ask_retries,
+            )
+            response_text = (response_text or '').strip()
+            if not response_text:
+                raise ValueError('Empty response — check session key / org ID')
+            label = f'{used_model}@{name}' if multi else used_model
+            if multi and errors:
+                print(f'Claude browser: account "{name}" succeeded after failover ({len(errors)} failed)')
+            return response_text, tokens_in, tokens_out, label
+        except Exception as e:
+            msg = f'{name}: {e}'
+            errors.append(msg)
+            print(f'Claude browser account failed — {msg}')
+            continue
+
+    raise ValueError(
+        'All Claude browser accounts failed:\n' + '\n'.join(f'  • {e}' for e in errors)
+    )
+
+
 def _log_usage(
     user,
     feature,
@@ -185,28 +268,9 @@ def ask_ai(system_prompt: str, user_prompt: str, user=None, feature='unknown', q
                 pass
 
         elif provider == 'claude_browser':
-            from dns.claude_browser import create_conversation, ask_claude, compose_prompt
-            used_model = model or 'claude-sonnet-5'
-            account = get_default_claude_account()
-            if not account:
-                raise ValueError(
-                    'No Claude browser accounts configured. '
-                    'Add a session key + organization ID under AI settings.'
-                )
-            session_key = (account.get('session_key') or '').strip()
-            org_id = (account.get('org_id') or '').strip()
-            if not session_key or not org_id:
-                raise ValueError('Default Claude browser account is missing session key or org ID.')
-            prompt = compose_prompt(system_prompt, user_prompt)
-            conv_id = create_conversation(
-                session_key, org_id, title=f'DNS Shield ({feature})', model=used_model, system_prompt='',
+            response_text, tokens_in, tokens_out, used_model = _ask_via_claude_browser(
+                system_prompt, user_prompt, model or 'claude-sonnet-5', feature,
             )
-            response_text, tokens_in, tokens_out = ask_claude(
-                session_key, org_id, prompt=prompt, conv_id=conv_id, model=used_model, minimal_tools=True,
-            )
-            response_text = (response_text or '').strip()
-            if not response_text:
-                raise ValueError('Empty response from Claude browser wrapper — check session key / org ID')
 
         else:
             raise ValueError(f'Unsupported AI Provider: {provider}')

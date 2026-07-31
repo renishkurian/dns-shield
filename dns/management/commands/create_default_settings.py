@@ -16,6 +16,8 @@ DEFAULTS = {
     'session_timeout': ('28800', 'Session timeout in seconds (8 hours)'),
     'log_retention_days': ('30', 'Days to keep query logs'),
     'unbound_config_path': ('/etc/unbound/unbound.conf.d/dns-shield.conf', 'Unbound config file'),
+    'ai_auto_enabled': ('false', 'Run Smart AI behavioral profiler on a schedule'),
+    'ai_auto_interval_hours': ('24', 'Hours between auto intelligence profiler runs'),
 }
 
 SAFE_SEARCH_DEFAULTS = ['google', 'bing', 'youtube', 'duckduckgo', 'yandex']

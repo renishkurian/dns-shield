@@ -155,6 +155,7 @@ def create_conversation(
     title: str = 'DNS Shield',
     model: str = _DEFAULT_MODEL,
     system_prompt: Optional[str] = None,
+    max_retries: int = 3,
 ) -> str:
     from curl_cffi import requests
 
@@ -166,7 +167,7 @@ def create_conversation(
 
     conv_id = str(uuid.uuid4())
     headers = get_headers(session_key)
-    max_retries = 3
+    max_retries = max(1, int(max_retries or 1))
     retry_delay = 5
     response = None
 
@@ -218,6 +219,7 @@ def ask_claude(
     model: str = _DEFAULT_MODEL,
     *,
     minimal_tools: bool = True,
+    max_retries: int = 4,
 ) -> tuple[str, int, int]:
     from curl_cffi import requests
 
@@ -226,7 +228,7 @@ def ask_claude(
     headers['Accept'] = 'text/event-stream'
     prompt_text = prompt if isinstance(prompt, str) else str(prompt)
 
-    max_retries = 4
+    max_retries = max(1, int(max_retries or 1))
     retry_delay = 8
     last_resets_at = None
     rate_limit_msg = 'Rate limited on completion — wait and retry'
