@@ -43,6 +43,15 @@ class Command(BaseCommand):
         server = proxy.start_proxy(host, port, upstream_host, upstream_port, matcher)
 
         stop = threading.Event()
+        last_token = None
+
+        def _current_reload_token():
+            try:
+                from dns.models import SystemSetting
+                row = SystemSetting.objects.filter(key='matcher_reload_token').first()
+                return row.value if row else None
+            except Exception:
+                return None
 
         def _shutdown(signum, frame):
             self.stdout.write('\nShutting down DNS proxy...')
@@ -52,9 +61,15 @@ class Command(BaseCommand):
         signal.signal(signal.SIGTERM, _shutdown)
 
         self.stdout.write(self.style.SUCCESS('DNS proxy running. Press Ctrl+C to stop.'))
+        last_token = _current_reload_token()
 
         while not stop.is_set():
             time.sleep(1)
+            token = _current_reload_token()
+            if token is not None and token != last_token:
+                self.stdout.write('Rules changed — reloading matcher…')
+                matcher.reload()
+                last_token = token
 
         proxy.stop_proxy()
         dns_logger.stop()

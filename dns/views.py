@@ -1632,7 +1632,24 @@ class DnsCacheFlushView(APIView):
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 def _reload_matcher():
-    """Reload the DNS matcher cache after a rules change."""
+    """Reload the DNS matcher cache after a rules change.
+
+    The web process (Daphne) and DNS proxy are separate processes. Bump a
+    shared version token so the proxy picks up new rules on its next poll,
+    and also reload locally for in-process Test APIs.
+    """
+    try:
+        import time
+        from dns.models import SystemSetting
+        SystemSetting.objects.update_or_create(
+            key='matcher_reload_token',
+            defaults={
+                'value': str(time.time()),
+                'description': 'Bump to signal DNS proxy to reload rules',
+            },
+        )
+    except Exception:
+        pass
     try:
         from dns_proxy.matcher import get_matcher
         import threading

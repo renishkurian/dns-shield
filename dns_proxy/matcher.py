@@ -47,10 +47,13 @@ class Matcher:
             # Load Blocked Domains
             for d in BlockedDomain.objects.filter(enabled=True):
                 gid = d.group_id # Django ForeignKey _id field
+                domain = (d.domain or '').strip().lower()
+                if not domain:
+                    continue
                 if d.block_type == 'exact':
-                    new_exact_blocks[gid].add(d.domain)
+                    new_exact_blocks[gid].add(domain)
                 elif d.block_type == 'wildcard':
-                    new_wildcard_blocks[gid].append(d.domain)
+                    new_wildcard_blocks[gid].append(domain)
                 elif d.block_type == 'regex':
                     try:
                         new_regex_blocks[gid].append((re.compile(d.domain, re.IGNORECASE), d.domain))
@@ -60,10 +63,13 @@ class Matcher:
             # Load Allowed Domains
             for d in AllowedDomain.objects.filter(enabled=True):
                 gid = d.group_id
+                domain = (d.domain or '').strip().lower()
+                if not domain:
+                    continue
                 if d.allow_type == 'exact':
-                    new_exact_allows[gid].add(d.domain)
+                    new_exact_allows[gid].add(domain)
                 elif d.allow_type == 'wildcard':
-                    new_wildcard_allows[gid].append(d.domain)
+                    new_wildcard_allows[gid].append(domain)
                 elif d.allow_type == 'regex':
                     try:
                         new_regex_allows[gid].append((re.compile(d.domain, re.IGNORECASE), d.domain))
@@ -90,9 +96,11 @@ class Matcher:
                     new_app_blocks[gid].add(d.lower())
 
             # Load Gravity (Global for now, but Adlist filtering by group is possible)
-            new_gravity = set(
-                GravityDomain.objects.values_list('domain', flat=True)
-            )
+            new_gravity = {
+                (d or '').strip().lower()
+                for d in GravityDomain.objects.values_list('domain', flat=True)
+                if d
+            }
 
             with self._lock:
                 self.exact_blocks = new_exact_blocks
@@ -114,15 +122,16 @@ class Matcher:
 
     def is_allowed(self, domain: str, group_id: int = None) -> bool:
         """Check if domain is explicitly allowed for this group or globally."""
+        domain_lower = domain.lower()
         with self._lock:
             # Check global allows (None) and group-specific allows
             for gid in [None, group_id]:
                 if gid not in self.exact_allows and gid not in self.wildcard_allows and gid not in self.regex_allows:
                     continue
-                if domain in self.exact_allows[gid]:
+                if domain_lower in self.exact_allows[gid]:
                     return True
                 for w in self.wildcard_allows[gid]:
-                    if domain == w or domain.endswith('.' + w):
+                    if domain_lower == w or domain_lower.endswith('.' + w):
                         return True
                 for pattern, _ in self.regex_allows[gid]:
                     if pattern.search(domain):
@@ -186,10 +195,11 @@ class Matcher:
 
     def in_gravity(self, domain: str) -> bool:
         """Gravity check is currently global."""
+        domain_lower = domain.lower()
         with self._lock:
-            if domain in self.gravity:
+            if domain_lower in self.gravity:
                 return True
-            parts = domain.split('.')
+            parts = domain_lower.split('.')
             for i in range(1, len(parts)):
                 parent = '.'.join(parts[i:])
                 if parent in self.gravity:
