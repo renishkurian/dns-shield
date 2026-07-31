@@ -311,8 +311,29 @@ class QueryLogListView(APIView):
         if to_dt:
             qs = qs.filter(timestamp__lte=to_dt)
 
-        qs = qs.order_by('-timestamp')[:500]
-        return Response(QueryLogSerializer(qs, many=True).data)
+        try:
+            page = max(int(request.query_params.get('page', 1)), 1)
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = min(max(int(request.query_params.get('page_size', 50)), 10), 200)
+        except (TypeError, ValueError):
+            page_size = 50
+
+        total = qs.count()
+        total_pages = max((total + page_size - 1) // page_size, 1)
+        if page > total_pages:
+            page = total_pages
+        offset = (page - 1) * page_size
+        rows = qs.order_by('-timestamp')[offset:offset + page_size]
+
+        return Response({
+            'results': QueryLogSerializer(rows, many=True).data,
+            'count': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': total_pages,
+        })
 
 
 class QueryLogExportView(APIView):

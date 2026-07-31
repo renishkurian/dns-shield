@@ -5,7 +5,7 @@ import {
   Play, Pause, Download, Shield, Activity, 
   CheckCircle, XCircle, Search, Trash, 
   Lock, Unlock, Database, ArrowRight,
-  Loader2, RefreshCw, X, Sparkles
+  Loader2, RefreshCw, X, Sparkles, ChevronLeft, ChevronRight
 } from 'lucide-react'
 
 const STATUS_LABELS = {
@@ -191,9 +191,14 @@ export default function QueryLog({ user, initialQueries = [] }) {
   const [filters, setFilters] = useState({ status: '', client: '', domain: '' })
   const [acting, setActing] = useState(null) // { domain, type }
   const [loading, setLoading] = useState(false)
+  const [page, setPage] = useState(1)
+  const [pageSize] = useState(50)
+  const [total, setTotal] = useState(initialQueries.length)
+  const [totalPages, setTotalPages] = useState(1)
   const wsRef = useRef(null)
   const pausedRef = useRef(false)
   const filtersRef = useRef(filters)
+  const pageRef = useRef(1)
 
   const quickBlock = async (domain) => {
     setActing({ domain, type: 'block' })
@@ -231,32 +236,43 @@ export default function QueryLog({ user, initialQueries = [] }) {
     filtersRef.current = filters
   }, [filters])
 
-  // Load from DB when filters change (dashboard counts come from DB; live feed alone is incomplete)
   useEffect(() => {
-    const params = new URLSearchParams()
-    if (filters.status) params.set('status', filters.status)
-    if (filters.client) params.set('client', filters.client)
-    if (filters.domain) params.set('domain', filters.domain)
-    const hasFilters = !!(filters.status || filters.client || filters.domain)
+    pageRef.current = page
+  }, [page])
 
-    let cancelled = false
-    const load = async () => {
-      if (!hasFilters) {
-        // Keep live feed / initial props when no filters
-        return
+  const loadPage = async (nextPage = page, nextFilters = filters) => {
+    const params = new URLSearchParams()
+    if (nextFilters.status) params.set('status', nextFilters.status)
+    if (nextFilters.client) params.set('client', nextFilters.client)
+    if (nextFilters.domain) params.set('domain', nextFilters.domain)
+    params.set('page', String(nextPage))
+    params.set('page_size', String(pageSize))
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/queries?${params}`)
+      const data = await res.json()
+      if (Array.isArray(data?.results)) {
+        setEntries(data.results)
+        setTotal(data.count || 0)
+        setTotalPages(data.total_pages || 1)
+        setPage(data.page || nextPage)
+      } else if (Array.isArray(data)) {
+        // Backward compat if API not yet updated
+        setEntries(data)
+        setTotal(data.length)
+        setTotalPages(1)
       }
-      setLoading(true)
-      try {
-        const res = await fetch(`/api/queries?${params}`)
-        const data = await res.json()
-        if (!cancelled && Array.isArray(data)) setEntries(data)
-      } catch (e) {
-        console.error(e)
-      }
-      if (!cancelled) setLoading(false)
+    } catch (e) {
+      console.error(e)
     }
-    load()
-    return () => { cancelled = true }
+    setLoading(false)
+  }
+
+  // Reset to page 1 and reload when filters change
+  useEffect(() => {
+    setPage(1)
+    loadPage(1, filters)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.status, filters.client, filters.domain])
 
   useEffect(() => {
@@ -266,9 +282,10 @@ export default function QueryLog({ user, initialQueries = [] }) {
       wsRef.current = ws
       ws.onmessage = (event) => {
         if (pausedRef.current) return
+        // Only prepend live events on page 1
+        if (pageRef.current !== 1) return
         const data = JSON.parse(event.data)
         const f = filtersRef.current
-        // When filtering, only prepend matching live events
         if (f.status === 'blocked') {
           if (!BLOCKED_STATUSES.has(data.status) && !data.status?.startsWith('blocked')) return
         } else if (f.status && data.status !== f.status) {
@@ -276,24 +293,22 @@ export default function QueryLog({ user, initialQueries = [] }) {
         }
         if (f.client && !data.client_ip?.includes(f.client)) return
         if (f.domain && !data.domain?.includes(f.domain)) return
-        setEntries(prev => [data, ...prev].slice(0, 1000))
+        setEntries(prev => [data, ...prev].slice(0, pageSize))
+        setTotal(t => t + 1)
       }
       ws.onclose = () => setTimeout(connect, 3000)
     }
     connect()
     return () => wsRef.current?.close()
-  }, [])
+  }, [pageSize])
 
-  const filtered = entries.filter(e => {
-    if (filters.status === 'blocked') {
-      if (!BLOCKED_STATUSES.has(e.status) && !e.status?.startsWith('blocked')) return false
-    } else if (filters.status && e.status !== filters.status) {
-      return false
-    }
-    if (filters.client && !e.client_ip?.includes(filters.client)) return false
-    if (filters.domain && !e.domain?.includes(filters.domain)) return false
-    return true
-  })
+  const goToPage = (p) => {
+    const next = Math.min(Math.max(p, 1), totalPages)
+    setPage(next)
+    loadPage(next, filters)
+  }
+
+  const filtered = entries
 
   const seedData = async () => {
     if (!confirm('Seed 50 test queries?')) return
@@ -315,7 +330,12 @@ export default function QueryLog({ user, initialQueries = [] }) {
       headers: { 'X-CSRFToken': getCsrf() }
     })
     setActing(null)
-    if (res.ok) setEntries([])
+    if (res.ok) {
+      setEntries([])
+      setTotal(0)
+      setTotalPages(1)
+      setPage(1)
+    }
   }
 
   const exportCsv = () => {
@@ -378,11 +398,11 @@ export default function QueryLog({ user, initialQueries = [] }) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((e, i) => {
+                {filtered.map((e) => {
                   const s = STATUS_LABELS[e.status] || { label: e.status, cls: 'badge-gray' }
                   const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '—'
                   return (
-                    <tr key={i} className="table-row-hover border-b border-slate-800/50"
+                    <tr key={e.id || `${e.timestamp}-${e.domain}-${e.query_type}`} className="table-row-hover border-b border-slate-800/50"
                         onClick={() => setSelectedEntry(selectedEntry?.id === e.id ? null : e)}>
                       <td className="px-4 py-2 text-slate-500 font-mono whitespace-nowrap">{ts}</td>
                       <td className="px-4 py-2 font-mono text-slate-200 max-w-xs truncate flex items-center gap-1.5">
@@ -447,6 +467,30 @@ export default function QueryLog({ user, initialQueries = [] }) {
                       : 'Waiting for DNS queries…'}
               </div>
             )}
+          </div>
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-700/80 bg-surface-50/50">
+            <p className="text-[11px] text-slate-500">
+              {total.toLocaleString()} total
+              {total > 0 && (
+                <> · page {page} of {totalPages}</>
+              )}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                className="btn-ghost text-xs py-1 px-2 disabled:opacity-40"
+                disabled={loading || page <= 1}
+                onClick={() => goToPage(page - 1)}
+              >
+                <ChevronLeft size={14} /> Prev
+              </button>
+              <button
+                className="btn-ghost text-xs py-1 px-2 disabled:opacity-40"
+                disabled={loading || page >= totalPages}
+                onClick={() => goToPage(page + 1)}
+              >
+                Next <ChevronRight size={14} />
+              </button>
+            </div>
           </div>
         </div>
 
