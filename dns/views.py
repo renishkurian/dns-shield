@@ -296,10 +296,14 @@ class QueryLogListView(APIView):
         from_dt = request.query_params.get('from')
         to_dt = request.query_params.get('to')
 
-        if status_filter:
+        if status_filter == 'blocked':
+            qs = qs.filter(status__in=[
+                'blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai',
+            ])
+        elif status_filter:
             qs = qs.filter(status=status_filter)
         if client:
-            qs = qs.filter(client_ip=client)
+            qs = qs.filter(client_ip__icontains=client)
         if domain:
             qs = qs.filter(domain__icontains=domain)
         if from_dt:
@@ -307,7 +311,7 @@ class QueryLogListView(APIView):
         if to_dt:
             qs = qs.filter(timestamp__lte=to_dt)
 
-        qs = qs[:500]
+        qs = qs.order_by('-timestamp')[:500]
         return Response(QueryLogSerializer(qs, many=True).data)
 
 

@@ -81,6 +81,7 @@ export default function Lists({ user, lists: initial = [], uniqueCount: initialU
   const [showGravity, setShowGravity] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ url: '', name: '', comment: '' })
+  const [err, setErr] = useState('')
   const isAdmin = user?.role === 'admin'
 
   const toggle = async (id, enabled) => {
@@ -98,19 +99,38 @@ export default function Lists({ user, lists: initial = [], uniqueCount: initialU
     setLists(l => l.filter(x => x.id !== id))
   }
 
+  const formatErrors = (data) => {
+    if (!data || typeof data !== 'object') return 'Failed to add adlist.'
+    if (typeof data.detail === 'string') return data.detail
+    if (typeof data.error === 'string') return data.error
+    const parts = Object.entries(data).flatMap(([field, msgs]) => {
+      const list = Array.isArray(msgs) ? msgs : [msgs]
+      return list.map(m => (field === 'non_field_errors' ? m : `${field}: ${m}`))
+    })
+    return parts.join(' ') || 'Failed to add adlist.'
+  }
+
   const save = async () => {
+    setErr('')
+    if (!form.url.trim() || !form.name.trim()) {
+      setErr('URL and list name are required.')
+      return
+    }
     const res = await fetch('/api/lists', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
       body: JSON.stringify(form),
     })
-    if (res.ok) {
-      const resp = await res.json()
-      const data = resp.lists || resp // Handle both array and object response
-      setLists(l => [data, ...l])
-      setShowAdd(false)
-      setForm({ url: '', name: '', comment: '' })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      setErr(formatErrors(data))
+      return
     }
+    const item = data.lists || data
+    setLists(l => [item, ...l])
+    setShowAdd(false)
+    setForm({ url: '', name: '', comment: '' })
+    setErr('')
   }
 
   // No longer needed: const total = lists.reduce((s, l) => s + (l.domain_count || 0), 0)
@@ -135,17 +155,18 @@ export default function Lists({ user, lists: initial = [], uniqueCount: initialU
       {showAdd && (
         <div className="card mb-4 animate-fade-in">
           <h3 className="font-semibold text-white text-sm mb-3">Add Adlist</h3>
+          {err && <div className="text-red-400 text-xs mb-3 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{err}</div>}
           <div className="space-y-2">
             <input className="input text-xs" placeholder="https://raw.githubusercontent.com/…/domains.txt"
-              value={form.url} onChange={e => setForm(f => ({...f, url: e.target.value}))} />
+              value={form.url} onChange={e => { setErr(''); setForm(f => ({...f, url: e.target.value})) }} />
             <input className="input text-xs" placeholder="List name"
-              value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} />
+              value={form.name} onChange={e => { setErr(''); setForm(f => ({...f, name: e.target.value})) }} />
             <input className="input text-xs" placeholder="Comment (optional)"
               value={form.comment} onChange={e => setForm(f => ({...f, comment: e.target.value}))} />
           </div>
           <div className="flex gap-2 mt-3">
             <button onClick={save} className="btn-primary text-xs">Add</button>
-            <button onClick={() => setShowAdd(false)} className="btn-ghost text-xs">Cancel</button>
+            <button onClick={() => { setShowAdd(false); setErr('') }} className="btn-ghost text-xs">Cancel</button>
           </div>
         </div>
       )}

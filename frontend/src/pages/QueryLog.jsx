@@ -190,8 +190,10 @@ export default function QueryLog({ user, initialQueries = [] }) {
   const [selectedEntry, setSelectedEntry] = useState(null)
   const [filters, setFilters] = useState({ status: '', client: '', domain: '' })
   const [acting, setActing] = useState(null) // { domain, type }
+  const [loading, setLoading] = useState(false)
   const wsRef = useRef(null)
   const pausedRef = useRef(false)
+  const filtersRef = useRef(filters)
 
   const quickBlock = async (domain) => {
     setActing({ domain, type: 'block' })
@@ -226,6 +228,38 @@ export default function QueryLog({ user, initialQueries = [] }) {
   }, [paused])
 
   useEffect(() => {
+    filtersRef.current = filters
+  }, [filters])
+
+  // Load from DB when filters change (dashboard counts come from DB; live feed alone is incomplete)
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (filters.status) params.set('status', filters.status)
+    if (filters.client) params.set('client', filters.client)
+    if (filters.domain) params.set('domain', filters.domain)
+    const hasFilters = !!(filters.status || filters.client || filters.domain)
+
+    let cancelled = false
+    const load = async () => {
+      if (!hasFilters) {
+        // Keep live feed / initial props when no filters
+        return
+      }
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/queries?${params}`)
+        const data = await res.json()
+        if (!cancelled && Array.isArray(data)) setEntries(data)
+      } catch (e) {
+        console.error(e)
+      }
+      if (!cancelled) setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [filters.status, filters.client, filters.domain])
+
+  useEffect(() => {
     const connect = () => {
       const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
       const ws = new WebSocket(`${protocol}://${location.host}/ws/queries`)
@@ -233,6 +267,15 @@ export default function QueryLog({ user, initialQueries = [] }) {
       ws.onmessage = (event) => {
         if (pausedRef.current) return
         const data = JSON.parse(event.data)
+        const f = filtersRef.current
+        // When filtering, only prepend matching live events
+        if (f.status === 'blocked') {
+          if (!BLOCKED_STATUSES.has(data.status) && !data.status?.startsWith('blocked')) return
+        } else if (f.status && data.status !== f.status) {
+          return
+        }
+        if (f.client && !data.client_ip?.includes(f.client)) return
+        if (f.domain && !data.domain?.includes(f.domain)) return
         setEntries(prev => [data, ...prev].slice(0, 1000))
       }
       ws.onclose = () => setTimeout(connect, 3000)
@@ -395,7 +438,13 @@ export default function QueryLog({ user, initialQueries = [] }) {
             </table>
             {!filtered.length && (
               <div className="text-center py-12 text-slate-600">
-                {paused ? 'Feed paused. Resume to see new queries.' : 'Waiting for DNS queries…'}
+                {loading
+                  ? 'Loading…'
+                  : paused
+                    ? 'Feed paused. Resume to see new queries.'
+                    : filters.status || filters.client || filters.domain
+                      ? 'No queries match these filters.'
+                      : 'Waiting for DNS queries…'}
               </div>
             )}
           </div>
