@@ -8,11 +8,18 @@ import {
 
 // --- Simple Line Chart (SVG) ---
 function MiniLineChart({ data, width = 600, height = 120 }) {
-  if (!data?.length) return null
-  const max = Math.max(...data.map(d => d.count), 1)
+  if (!data?.length) {
+    return (
+      <div className="h-full flex items-center justify-center text-xs text-slate-600 italic">
+        No traffic history yet
+      </div>
+    )
+  }
+  const max = Math.max(...data.map(d => d.count || 0), 1)
+  const denom = Math.max(data.length - 1, 1)
   const points = data.map((d, i) => {
-    const x = (i / (data.length - 1)) * width
-    const y = height - (d.count / max) * height
+    const x = (i / denom) * width
+    const y = height - ((d.count || 0) / max) * (height - 4) - 2
     return `${x},${y}`
   }).join(' ')
 

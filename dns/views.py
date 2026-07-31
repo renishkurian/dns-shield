@@ -1547,37 +1547,48 @@ class DomainAnalyticsView(APIView):
         domain = request.query_params.get('domain')
         if not domain:
             return Response({'error': 'Domain required'}, status=400)
-            
+
         since = dj_timezone.now() - timedelta(days=30)
         qs = QueryLog.objects.filter(domain=domain, timestamp__gte=since)
-        
+
         total = qs.count()
         status_split = qs.values('status').annotate(count=Count('id'))
         top_clients = qs.values('client_ip').annotate(count=Count('id')).order_by('-count')[:5]
-        
-        # Daily breakdown for 30d
-        daily = (
-            qs.extra(select={'day': "date(timestamp)"})
+
+        # Daily breakdown for 30d — fill every day so the chart always has a series
+        from django.db.models.functions import TruncDate
+        daily_rows = (
+            qs.annotate(day=TruncDate('timestamp'))
             .values('day')
             .annotate(count=Count('id'))
             .order_by('day')
         )
-        
+        by_day = {}
+        for row in daily_rows:
+            if row['day'] is not None:
+                by_day[row['day'].isoformat()] = row['count']
+
+        today = dj_timezone.localdate()
+        history = []
+        for i in range(29, -1, -1):
+            d = today - timedelta(days=i)
+            history.append({'day': d.isoformat(), 'count': by_day.get(d.isoformat(), 0)})
+
         # Check current rules
         from dns_proxy.matcher import get_matcher
         matcher = get_matcher()
         is_blocked = not matcher.is_allowed(domain) and (
-            matcher.match_pattern(domain) or 
-            matcher.match_domain(domain) or 
+            matcher.match_pattern(domain) or
+            matcher.match_domain(domain) or
             matcher.in_gravity(domain)
         )
-        
+
         return Response({
             'domain': domain,
             'total_hits_30d': total,
             'status_split': list(status_split),
             'top_clients': list(top_clients),
-            'history': list(daily),
+            'history': history,
             'is_blocked': is_blocked
         })
 
