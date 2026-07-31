@@ -305,13 +305,22 @@ class StatsUpstreamServersView(APIView):
 
 
 class StatsAIThreatInsightView(APIView):
+    """Dashboard AI threat summary. Cached + single-flight to avoid duplicate Claude calls."""
+
+    CACHE_TTL = 600  # 10 minutes
+    LOCK_TTL = 180   # hold while a call is in progress
+
     def get(self, request):
+        import hashlib
+        import time
+        from django.core.cache import cache
         from dns.domain_trust import (
             dedupe_domains, trusted_domain_set, upsert_domain_trust, HIGH_TRUST_THRESHOLD,
         )
         from dns.ai_service import ask_ai
 
-        # Last 200 blocked queries → unique domains; skip ones already high-trust
+        force = str(request.query_params.get('refresh', '')).lower() in ('1', 'true', 'yes')
+
         qs = QueryLog.objects.filter(
             status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client']
         ).order_by('-timestamp')[:200]
@@ -331,6 +340,47 @@ class StatsAIThreatInsightView(APIView):
                 'domains_analyzed': 0,
                 'skipped_trusted': len(skipped_trusted),
             })
+
+        domain_key = hashlib.sha256(','.join(sorted(domains)).encode()).hexdigest()[:24]
+        cache_key = f'ai_threat_insight:{domain_key}'
+        lock_key = f'ai_threat_insight_lock:{domain_key}'
+
+        if not force:
+            cached = cache.get(cache_key)
+            if cached:
+                cached = dict(cached)
+                cached['cached'] = True
+                return Response(cached)
+
+        # Single-flight: if another request is already calling the AI for this set, wait for it
+        if not force:
+            got_lock = cache.add(lock_key, '1', timeout=self.LOCK_TTL)
+            if not got_lock:
+                for _ in range(90):  # up to ~90s
+                    time.sleep(1)
+                    cached = cache.get(cache_key)
+                    if cached:
+                        cached = dict(cached)
+                        cached['cached'] = True
+                        return Response(cached)
+                    if cache.add(lock_key, '1', timeout=self.LOCK_TTL):
+                        got_lock = True
+                        break
+                if not got_lock:
+                    stale = cache.get(cache_key)
+                    if stale:
+                        stale = dict(stale)
+                        stale['cached'] = True
+                        return Response(stale)
+                    return Response({
+                        'insight': 'Threat analysis is already running. Try again shortly.',
+                        'score': 0,
+                        'domains_analyzed': 0,
+                        'pending': True,
+                    })
+        else:
+            cache.delete(lock_key)
+            cache.add(lock_key, '1', timeout=self.LOCK_TTL)
 
         system_prompt = (
             "You are a network security analyst. Analyze a deduplicated list of blocked DNS domains "
@@ -369,9 +419,13 @@ class StatsAIThreatInsightView(APIView):
             data['domains_analyzed'] = len(domains)
             data['skipped_trusted'] = len(skipped_trusted)
             data['trust_scores_saved'] = saved
+            data['cached'] = False
+            cache.set(cache_key, data, timeout=self.CACHE_TTL)
             return Response(data)
         except Exception as e:
             return Response({'error': str(e)}, status=500)
+        finally:
+            cache.delete(lock_key)
 
 
 # ─── QUERY LOG ────────────────────────────────────────────────────────────────

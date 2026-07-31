@@ -219,15 +219,51 @@ function FrequencyTable({ title, data, color = 'blue' }) {
   )
 }
 
-function AIInsightCard() {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
+// Shared so remounts / double effects reuse one in-flight threat-insight request
+let _insightInflight = null
+let _insightCache = null
+let _insightCacheAt = 0
+const INSIGHT_CLIENT_TTL_MS = 5 * 60 * 1000
 
-  const fetchInsight = async () => {
+function AIInsightCard() {
+  const [data, setData] = useState(_insightCache)
+  const [loading, setLoading] = useState(!_insightCache)
+
+  const fetchInsight = async (force = false) => {
+    const now = Date.now()
+    if (!force && _insightCache && (now - _insightCacheAt) < INSIGHT_CLIENT_TTL_MS) {
+      setData(_insightCache)
+      setLoading(false)
+      return
+    }
+    if (!force && _insightInflight) {
+      setLoading(true)
+      try {
+        const json = await _insightInflight
+        setData(json)
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
     setLoading(true)
+    const url = force ? '/api/stats/ai-insight?refresh=1' : '/api/stats/ai-insight'
+    _insightInflight = fetch(url)
+      .then(res => res.json())
+      .then(json => {
+        if (!json?.error && !json?.pending) {
+          _insightCache = json
+          _insightCacheAt = Date.now()
+        }
+        return json
+      })
+      .finally(() => {
+        _insightInflight = null
+      })
+
     try {
-      const res = await fetch('/api/stats/ai-insight')
-      const json = await res.json()
+      const json = await _insightInflight
       setData(json)
     } finally {
       setLoading(false)
@@ -235,7 +271,7 @@ function AIInsightCard() {
   }
 
   useEffect(() => {
-    fetchInsight()
+    fetchInsight(false)
   }, [])
 
   if (loading) return (
@@ -281,7 +317,7 @@ function AIInsightCard() {
       </div>
 
       <button 
-        onClick={fetchInsight}
+        onClick={() => fetchInsight(true)}
         className="mt-6 w-full py-2 bg-brand-500/5 hover:bg-brand-500/10 border border-brand-500/10 text-[10px] font-bold text-brand-400 uppercase tracking-widest rounded-xl transition-all"
       >
         Refresh Analysis
