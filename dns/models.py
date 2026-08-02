@@ -203,6 +203,25 @@ class DomainTrust(models.Model):
         return f'{self.domain} ({self.trust_score})'
 
 
+class AIReportCache(models.Model):
+    """Saved AI browsing classification reports for later reopen / clear."""
+    range_from = models.DateTimeField(db_index=True)
+    range_to = models.DateTimeField(db_index=True)
+    client_ip = models.GenericIPAddressField(null=True, blank=True)
+    summary = models.TextField(blank=True)
+    domains_found = models.PositiveIntegerField(default=0)
+    domains_analyzed = models.PositiveIntegerField(default=0)
+    payload = models.JSONField(default=dict)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'AI Report {self.range_from.date()} → {self.range_to.date()} ({self.domains_analyzed})'
+
+
 class LocalDnsRecord(models.Model):
     """Pi-hole-style local A/AAAA record: domain → IP."""
     domain = models.CharField(max_length=255, unique=True, db_index=True)

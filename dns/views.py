@@ -24,7 +24,7 @@ from rest_framework.views import APIView
 from dns.models import (
     QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer,
     ScheduledRule, AlertConfig, SystemEvent, AIUsageLog, DomainTrust,
-    LocalDnsRecord, LocalCnameRecord,
+    AIReportCache, LocalDnsRecord, LocalCnameRecord,
 )
 from dns.permissions import IsAdminRole
 from dns.serializers import (
@@ -35,6 +35,7 @@ from dns.serializers import (
     AppCategorySerializer, AppControlSerializer,
     ScheduledRuleSerializer, AlertConfigSerializer, SystemEventSerializer,
     AIUsageLogSerializer, DomainTrustSerializer,
+    AIReportCacheListSerializer, AIReportCacheDetailSerializer,
     LocalDnsRecordSerializer, LocalCnameRecordSerializer,
 )
 
@@ -1231,26 +1232,38 @@ class AIReportView(APIView):
             return Response({'error': 'Invalid date range. Use YYYY-MM-DD or ISO datetime.'}, status=400)
         if start_dt > end_dt:
             return Response({'error': 'from must be before to.'}, status=400)
+        now = dj_timezone.now()
+        if end_dt > now:
+            end_dt = now
+        if start_dt > now:
+            return Response({'error': 'from cannot be in the future.'}, status=400)
 
         qs = QueryLog.objects.filter(timestamp__gte=start_dt, timestamp__lte=end_dt)
         if client_ip:
             qs = qs.filter(client_ip=client_ip)
 
+        # Per domain + client so we can list every visitor
         rows = (
-            qs.values('domain')
+            qs.values('domain', 'client_ip')
             .annotate(hits=Count('id'), last_seen=Max('timestamp'))
             .order_by('-hits')
         )
         hit_map = {}
         last_seen_map = {}
+        clients_map = {}  # domain -> {ip: hits}
         for row in rows:
             d = normalize_domain(row['domain'])
             if not d:
                 continue
-            hit_map[d] = hit_map.get(d, 0) + int(row['hits'] or 0)
+            hits = int(row['hits'] or 0)
+            hit_map[d] = hit_map.get(d, 0) + hits
             prev = last_seen_map.get(d)
             if not prev or (row['last_seen'] and row['last_seen'] > prev):
                 last_seen_map[d] = row['last_seen']
+            ip = (row.get('client_ip') or '').strip()
+            if ip:
+                bucket = clients_map.setdefault(d, {})
+                bucket[ip] = bucket.get(ip, 0) + hits
 
         domains = dedupe_domains(sorted(hit_map.keys(), key=lambda d: (-hit_map[d], d)))
         total_unique = len(domains)
@@ -1266,6 +1279,31 @@ class AIReportView(APIView):
             })
 
         domains = domains[: self.MAX_DOMAINS]
+
+        # Resolve friendly client names for IPs that appear in this report
+        all_visitor_ips = set()
+        for d in domains:
+            all_visitor_ips.update(clients_map.get(d, {}).keys())
+        name_by_ip = {}
+        if all_visitor_ips:
+            for c in Client.objects.filter(ip__in=list(all_visitor_ips)):
+                label = (c.nickname or c.name or c.hostname or '').strip()
+                # Strip quarantine prefix for display cleanliness
+                if label.upper().startswith('[QUARANTINED]') or label.upper().startswith('[AI-QUARANTINED]'):
+                    label = label.split(']', 1)[-1].strip()
+                name_by_ip[c.ip] = label or c.ip
+
+        def _clients_for(domain_name):
+            visitors = clients_map.get(domain_name) or {}
+            out = []
+            for ip, hits in sorted(visitors.items(), key=lambda kv: (-kv[1], kv[0])):
+                out.append({
+                    'ip': ip,
+                    'name': name_by_ip.get(ip) or ip,
+                    'hits': hits,
+                })
+            return out
+
         items = []
         summary_bits = []
         errors = []
@@ -1280,7 +1318,7 @@ class AIReportView(APIView):
             except Exception as e:
                 errors.append(str(e))
 
-        # Merge hit counts / last_seen; fill gaps AI skipped
+        # Merge hit counts / last_seen / clients; fill gaps AI skipped
         by_domain = {}
         for item in items:
             d = normalize_domain(item.get('domain') or '')
@@ -1296,6 +1334,7 @@ class AIReportView(APIView):
             item['hits'] = hit_map.get(d, 0)
             ls = last_seen_map.get(d)
             item['last_seen'] = ls.isoformat() if ls else None
+            item['clients'] = _clients_for(d)
             by_domain[d] = item
 
         for d in domains:
@@ -1308,6 +1347,7 @@ class AIReportView(APIView):
                     'confidence': 'low',
                     'hits': hit_map.get(d, 0),
                     'last_seen': last_seen_map[d].isoformat() if last_seen_map.get(d) else None,
+                    'clients': _clients_for(d),
                 }
 
         items = sorted(by_domain.values(), key=lambda x: (-(x.get('hits') or 0), x.get('domain') or ''))
@@ -1339,6 +1379,22 @@ class AIReportView(APIView):
             return Response({'error': errors[0], **payload}, status=500)
         if errors:
             payload['warnings'] = errors
+
+        # Persist for later reopen / clear from the AI Report page
+        if items:
+            cached = AIReportCache.objects.create(
+                range_from=start_dt,
+                range_to=end_dt,
+                client_ip=client_ip or None,
+                summary=summary[:4000],
+                domains_found=total_unique,
+                domains_analyzed=len(items),
+                payload=payload,
+                created_by=request.user if request.user.is_authenticated else None,
+            )
+            payload['id'] = cached.id
+            payload['cached'] = True
+            payload['created_at'] = cached.created_at.isoformat()
         return Response(payload)
 
     @staticmethod
@@ -1394,6 +1450,53 @@ class AIReportView(APIView):
         if isinstance(data, dict):
             summary = (data.get('summary') or '').strip()
         return items, summary
+
+
+class AIReportCacheListView(APIView):
+    """List / clear saved AI reports."""
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        qs = AIReportCache.objects.all()[:100]
+        return Response(AIReportCacheListSerializer(qs, many=True).data)
+
+    def delete(self, request):
+        deleted, _ = AIReportCache.objects.all().delete()
+        return Response({'ok': True, 'deleted': deleted})
+
+
+class AIReportCacheDetailView(APIView):
+    """Load or delete one saved AI report."""
+    permission_classes = [IsAdminRole]
+
+    def get_object(self, pk):
+        try:
+            return AIReportCache.objects.get(pk=pk)
+        except AIReportCache.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        obj = self.get_object(pk)
+        if not obj:
+            return Response({'error': 'Not found'}, status=404)
+        payload = dict(obj.payload or {})
+        payload['id'] = obj.id
+        payload['cached'] = True
+        payload['created_at'] = obj.created_at.isoformat() if obj.created_at else None
+        payload.setdefault('summary', obj.summary)
+        payload.setdefault('from', obj.range_from.isoformat() if obj.range_from else None)
+        payload.setdefault('to', obj.range_to.isoformat() if obj.range_to else None)
+        payload.setdefault('client_ip', obj.client_ip)
+        payload.setdefault('domains_found', obj.domains_found)
+        payload.setdefault('domains_analyzed', obj.domains_analyzed)
+        return Response(payload)
+
+    def delete(self, request, pk):
+        obj = self.get_object(pk)
+        if not obj:
+            return Response({'error': 'Not found'}, status=404)
+        obj.delete()
+        return Response(status=204)
 
 
 class ClaudeBrowserAccountListView(APIView):

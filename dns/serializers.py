@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 from dns.models import (
     QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer,
     ScheduledRule, AlertConfig, SystemEvent, AIUsageLog, DomainTrust,
-    LocalDnsRecord, LocalCnameRecord,
+    AIReportCache, LocalDnsRecord, LocalCnameRecord,
 )
 from blocks.models import BlockedDomain, Pattern, Adlist, GravityDomain, AllowedDomain, BlockGroup, AppCategory, AppControl
 from users.models import UserProfile
@@ -361,3 +361,38 @@ class DomainTrustSerializer(serializers.ModelSerializer):
 
     def get_is_high_trust(self, obj):
         return obj.trust_score >= 70
+
+
+class AIReportCacheListSerializer(serializers.ModelSerializer):
+    created_by_username = serializers.SerializerMethodField()
+    top_categories = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AIReportCache
+        fields = [
+            'id', 'range_from', 'range_to', 'client_ip', 'summary',
+            'domains_found', 'domains_analyzed', 'top_categories',
+            'created_by', 'created_by_username', 'created_at',
+        ]
+
+    def get_created_by_username(self, obj):
+        return obj.created_by.username if obj.created_by else None
+
+    def get_top_categories(self, obj):
+        cats = (obj.payload or {}).get('categories') or []
+        return cats[:5]
+
+
+class AIReportCacheDetailSerializer(serializers.ModelSerializer):
+    created_by_username = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AIReportCache
+        fields = [
+            'id', 'range_from', 'range_to', 'client_ip', 'summary',
+            'domains_found', 'domains_analyzed', 'payload',
+            'created_by', 'created_by_username', 'created_at',
+        ]
+
+    def get_created_by_username(self, obj):
+        return obj.created_by.username if obj.created_by else None
