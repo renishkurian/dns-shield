@@ -1199,6 +1199,203 @@ class AIExplainView(APIView):
             return Response({'error': str(e)}, status=500)
 
 
+class AIReportView(APIView):
+    """
+    Date-range browsing report:
+    unique DNS domains → AI → URL + content category (movies, news, adult, ads, shopping, …).
+    """
+    permission_classes = [IsAdminRole]
+
+    MAX_DOMAINS = 120
+    BATCH_SIZE = 60
+    CATEGORIES = (
+        'movies', 'streaming', 'news', 'adult', 'ads', 'shopping', 'social',
+        'gaming', 'tech', 'cdn', 'mail', 'education', 'finance', 'search',
+        'cloud', 'iot', 'other',
+    )
+
+    def post(self, request):
+        from dns.domain_trust import dedupe_domains, normalize_domain
+        from dns.ai_service import ask_ai
+
+        start_raw = (request.data.get('from') or request.data.get('start') or '').strip()
+        end_raw = (request.data.get('to') or request.data.get('end') or '').strip()
+        client_ip = (request.data.get('client_ip') or request.data.get('client') or '').strip()
+
+        if not start_raw or not end_raw:
+            return Response({'error': 'from and to date range are required (YYYY-MM-DD or ISO datetime).'}, status=400)
+
+        start_dt = self._parse_bound(start_raw, end_of_day=False)
+        end_dt = self._parse_bound(end_raw, end_of_day=True)
+        if not start_dt or not end_dt:
+            return Response({'error': 'Invalid date range. Use YYYY-MM-DD or ISO datetime.'}, status=400)
+        if start_dt > end_dt:
+            return Response({'error': 'from must be before to.'}, status=400)
+
+        qs = QueryLog.objects.filter(timestamp__gte=start_dt, timestamp__lte=end_dt)
+        if client_ip:
+            qs = qs.filter(client_ip=client_ip)
+
+        rows = (
+            qs.values('domain')
+            .annotate(hits=Count('id'), last_seen=Max('timestamp'))
+            .order_by('-hits')
+        )
+        hit_map = {}
+        last_seen_map = {}
+        for row in rows:
+            d = normalize_domain(row['domain'])
+            if not d:
+                continue
+            hit_map[d] = hit_map.get(d, 0) + int(row['hits'] or 0)
+            prev = last_seen_map.get(d)
+            if not prev or (row['last_seen'] and row['last_seen'] > prev):
+                last_seen_map[d] = row['last_seen']
+
+        domains = dedupe_domains(sorted(hit_map.keys(), key=lambda d: (-hit_map[d], d)))
+        total_unique = len(domains)
+        if not domains:
+            return Response({
+                'summary': 'No DNS queries found in this date range.',
+                'from': start_dt.isoformat(),
+                'to': end_dt.isoformat(),
+                'domains_found': 0,
+                'domains_analyzed': 0,
+                'categories': [],
+                'items': [],
+            })
+
+        domains = domains[: self.MAX_DOMAINS]
+        items = []
+        summary_bits = []
+        errors = []
+
+        for i in range(0, len(domains), self.BATCH_SIZE):
+            batch = domains[i:i + self.BATCH_SIZE]
+            try:
+                batch_items, batch_summary = self._categorize_batch(ask_ai, batch, request.user)
+                items.extend(batch_items)
+                if batch_summary:
+                    summary_bits.append(batch_summary)
+            except Exception as e:
+                errors.append(str(e))
+
+        # Merge hit counts / last_seen; fill gaps AI skipped
+        by_domain = {}
+        for item in items:
+            d = normalize_domain(item.get('domain') or '')
+            if not d:
+                continue
+            item['domain'] = d
+            item['url'] = item.get('url') or f'https://{d}'
+            item['site_name'] = item.get('site_name') or d
+            cat = (item.get('category') or 'other').strip().lower()
+            if cat not in self.CATEGORIES:
+                cat = 'other'
+            item['category'] = cat
+            item['hits'] = hit_map.get(d, 0)
+            ls = last_seen_map.get(d)
+            item['last_seen'] = ls.isoformat() if ls else None
+            by_domain[d] = item
+
+        for d in domains:
+            if d not in by_domain:
+                by_domain[d] = {
+                    'domain': d,
+                    'url': f'https://{d}',
+                    'site_name': d,
+                    'category': 'other',
+                    'confidence': 'low',
+                    'hits': hit_map.get(d, 0),
+                    'last_seen': last_seen_map[d].isoformat() if last_seen_map.get(d) else None,
+                }
+
+        items = sorted(by_domain.values(), key=lambda x: (-(x.get('hits') or 0), x.get('domain') or ''))
+        cat_counts = {}
+        for item in items:
+            cat_counts[item['category']] = cat_counts.get(item['category'], 0) + 1
+        categories = [
+            {'name': name, 'count': cat_counts[name]}
+            for name in sorted(cat_counts.keys(), key=lambda n: (-cat_counts[n], n))
+        ]
+
+        summary = ' '.join(summary_bits).strip()
+        if not summary:
+            top = ', '.join(f"{c['name']} ({c['count']})" for c in categories[:5])
+            summary = f'Categorized {len(items)} unique domains. Top categories: {top}.'
+
+        payload = {
+            'summary': summary,
+            'from': start_dt.isoformat(),
+            'to': end_dt.isoformat(),
+            'client_ip': client_ip or None,
+            'domains_found': total_unique,
+            'domains_analyzed': len(items),
+            'truncated': total_unique > len(items),
+            'categories': categories,
+            'items': items,
+        }
+        if errors and not items:
+            return Response({'error': errors[0], **payload}, status=500)
+        if errors:
+            payload['warnings'] = errors
+        return Response(payload)
+
+    @staticmethod
+    def _parse_bound(value: str, *, end_of_day: bool):
+        raw = (value or '').strip()
+        if not raw:
+            return None
+        try:
+            if len(raw) == 10 and raw[4] == '-' and raw[7] == '-':
+                dt = datetime.strptime(raw, '%Y-%m-%d')
+                if end_of_day:
+                    dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+                return dj_timezone.make_aware(dt) if dj_timezone.is_naive(dt) else dt
+            dt = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+            if dj_timezone.is_naive(dt):
+                dt = dj_timezone.make_aware(dt)
+            return dt
+        except Exception:
+            return None
+
+    def _categorize_batch(self, ask_ai, domains, user):
+        cats = ', '.join(self.CATEGORIES)
+        system_prompt = (
+            'You are a web content classifier for DNS browsing reports. '
+            'For each DNS domain, reverse it to the most likely website URL and site name, '
+            'then tag it with exactly one content category. '
+            f'Allowed categories: {cats}. '
+            'Use ads for ad/tracker/analytics domains, cdn for CDNs, cloud for cloud APIs, '
+            'adult for pornography, movies for film sites, streaming for video platforms, '
+            'shopping for e-commerce, news for news/media, social for social networks. '
+            'Return ONLY raw JSON (no markdown) with keys: '
+            "summary (short sentence), items (array of objects with "
+            "domain, url, site_name, category, confidence as high|medium|low)."
+        )
+        lines = [f'{i+1}. {d}' for i, d in enumerate(domains)]
+        user_prompt = (
+            f'Classify these {len(domains)} unique DNS domains from a home network query log:\n'
+            + '\n'.join(lines)
+        )
+        raw = ask_ai(
+            system_prompt,
+            user_prompt,
+            user=user,
+            feature='ai_report',
+            query=f'{len(domains)} domains',
+        )
+        clean = (raw or '').replace('```json', '').replace('```', '').strip()
+        data = json.loads(clean)
+        items = data.get('items') if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            raise ValueError('AI response missing items array')
+        summary = ''
+        if isinstance(data, dict):
+            summary = (data.get('summary') or '').strip()
+        return items, summary
+
+
 class ClaudeBrowserAccountListView(APIView):
     """CRUD list for Claude.ai browser-wrapper accounts (sessionKey + org_id)."""
     permission_classes = [IsAdminRole]

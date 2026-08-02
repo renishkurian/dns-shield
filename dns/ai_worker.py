@@ -165,6 +165,11 @@ def run_profiler(lookback_hours=None, force=False):
                 if client.group_id != q_group.id:
                     client.group = q_group
                     update_fields.append('group')
+                # Persist AI reason as the client note so operators can see why
+                note = f'AI quarantine: {reason}'.strip()
+                if note and (client.comment or '').strip() != note:
+                    client.comment = note[:2000]
+                    update_fields.append('comment')
                 if update_fields:
                     client.save(update_fields=update_fields)
 

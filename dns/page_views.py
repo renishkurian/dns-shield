@@ -316,6 +316,7 @@ documentation_view = inertia_page('Documentation')(lambda r: None)
 
 # Phase 21+ Pages
 tools_view = inertia_page('Tools')(lambda r: None)
+ai_report_view = inertia_page('AIReport', admin_only=True)(lambda r: None)
 audit_log_view = inertia_page('AuditLog')(lambda r: None)
 system_health_view = inertia_page('settings/SystemHealth')(lambda r: None)
 api_token_view = inertia_page('settings/ApiToken')(lambda r: None)

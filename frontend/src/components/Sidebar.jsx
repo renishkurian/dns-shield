@@ -15,6 +15,7 @@ const navGroups = [
     items: [
       { label: 'Dashboard', href: '/', icon: LayoutDashboard },
       { label: 'Query Log', href: '/queries', icon: List },
+      { label: 'AI Report', href: '/ai-report', icon: Sparkles, adminOnly: true },
       { label: 'Network Map', href: '/network/map', icon: Network },
     ]
   },
@@ -119,8 +120,12 @@ export default function Sidebar({ currentPath, user }) {
   }
 
   // Combine groups based on user role
-  const groupsToRender = [...navGroups]
-  if (user?.role === 'admin') {
+  const isAdmin = user?.role === 'admin'
+  const groupsToRender = navGroups.map(group => ({
+    ...group,
+    items: group.items.filter(item => !item.adminOnly || isAdmin),
+  }))
+  if (isAdmin) {
     // Insert Administration right after Overview
     groupsToRender.splice(1, 0, adminGroup)
   }

@@ -36,6 +36,7 @@ urlpatterns = [
 
     # Phase 21+
     path('tools', page_views.tools_view, name='tools'),
+    path('ai-report', page_views.ai_report_view, name='ai-report'),
     path('settings/system-log', page_views.system_log_view, name='system-log'),
         path('audit', page_views.audit_log_view, name='audit'),
     path('settings/health', page_views.system_health_view, name='system-health'),

@@ -254,23 +254,32 @@ export default function ClientDetail({ user, total, blocked, top_domains = [], v
               </div>
             </div>
 
-            {quarantined && isAdmin && (
+            {quarantined && (
               <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-red-500/25 bg-red-500/5 px-4 py-3">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-red-300">This device is quarantined</p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Remove quarantine to clear the label and restore normal DNS for {client.ip}.
-                  </p>
+                  {client.comment ? (
+                    <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                      <span className="text-slate-500 uppercase tracking-wider font-bold text-[10px] mr-2">Reason</span>
+                      {client.comment}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Remove quarantine to clear the label and restore normal DNS for {client.ip}.
+                    </p>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={releaseQuarantine}
-                  disabled={releasing}
-                  className="btn-primary shrink-0 inline-flex items-center gap-2 justify-center"
-                >
-                  <ShieldOff size={14} />
-                  {releasing ? 'Removing…' : 'Remove Quarantine'}
-                </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={releaseQuarantine}
+                    disabled={releasing}
+                    className="btn-primary shrink-0 inline-flex items-center gap-2 justify-center"
+                  >
+                    <ShieldOff size={14} />
+                    {releasing ? 'Removing…' : 'Remove Quarantine'}
+                  </button>
+                )}
               </div>
             )}
 

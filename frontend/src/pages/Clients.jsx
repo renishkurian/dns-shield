@@ -209,7 +209,12 @@ export default function Clients({ user, clients: initial = [] }) {
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  <span className="text-slate-500 text-[10px] italic">{c.comment}</span>
+                  <span
+                    className={`text-[10px] ${hasQuarantineLabel(c) || c.is_blocked ? 'text-red-300/90 not-italic' : 'text-slate-500 italic'}`}
+                    title={c.comment || ''}
+                  >
+                    {c.comment || '—'}
+                  </span>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
