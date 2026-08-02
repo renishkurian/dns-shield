@@ -56,14 +56,30 @@ export default function Clients({ user, clients: initial = [] }) {
     }
   }
 
+  const hasQuarantineLabel = (client) =>
+    /\[(?:AI-)?QUARANTINED\]/i.test(`${client.name || ''} ${client.nickname || ''}`)
+
   const toggleBlock = (e, client) => {
     e.preventDefault()
     e.stopPropagation()
-    const next = !client.is_blocked
     const label = client.nickname || client.name || client.hostname || client.ip
+
+    // Label-only quarantine (AI tagged name but not is_blocked)
+    if (!client.is_blocked && hasQuarantineLabel(client)) {
+      patchClient(
+        client,
+        { release_quarantine: true },
+        `Remove quarantine for ${label}?\n\nThis clears the quarantine label for ${client.ip}.`,
+      )
+      return
+    }
+
+    const next = !client.is_blocked
     patchClient(
       client,
-      { is_blocked: next, ...(next ? { shield_bypass: false } : {}) },
+      next
+        ? { is_blocked: true, shield_bypass: false }
+        : { release_quarantine: true },
       next
         ? `Block all DNS for ${label}?\n\nEvery DNS query from ${client.ip} will be refused until you unblock.`
         : null,
@@ -178,9 +194,9 @@ export default function Clients({ user, clients: initial = [] }) {
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  {c.is_blocked ? (
+                  {c.is_blocked || hasQuarantineLabel(c) ? (
                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 text-[10px] font-bold uppercase tracking-wider">
-                      <Ban size={10} /> Blocked
+                      <Ban size={10} /> {hasQuarantineLabel(c) ? 'Quarantined' : 'Blocked'}
                     </span>
                   ) : c.shield_bypass ? (
                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-bold uppercase tracking-wider">
@@ -217,15 +233,19 @@ export default function Clients({ user, clients: initial = [] }) {
                           type="button"
                           disabled={actingId === c.id}
                           onClick={(e) => toggleBlock(e, c)}
-                          title={c.is_blocked ? 'Unblock all DNS for this client' : 'Block all DNS for this client'}
+                          title={
+                            c.is_blocked || hasQuarantineLabel(c)
+                              ? 'Remove quarantine / unblock DNS for this client'
+                              : 'Block all DNS for this client'
+                          }
                           className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors disabled:opacity-50 ${
-                            c.is_blocked
+                            c.is_blocked || hasQuarantineLabel(c)
                               ? 'text-green-400 hover:bg-green-500/10 border border-green-500/20'
                               : 'text-red-400 hover:bg-red-500/10 border border-red-500/20'
                           }`}
                         >
-                          {c.is_blocked ? <ShieldOff size={12} /> : <Ban size={12} />}
-                          {actingId === c.id ? '…' : c.is_blocked ? 'Unblock' : 'Block'}
+                          {c.is_blocked || hasQuarantineLabel(c) ? <ShieldOff size={12} /> : <Ban size={12} />}
+                          {actingId === c.id ? '…' : (c.is_blocked || hasQuarantineLabel(c) ? 'Unblock' : 'Block')}
                         </button>
                       </>
                     )}

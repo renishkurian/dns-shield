@@ -5,8 +5,20 @@ import Layout from '../components/Layout'
 import { 
   Wifi, Shield, Activity, Clock, ArrowLeft, Globe, 
   ExternalLink, CheckCircle, AlertCircle, Search,
-  Calendar, Monitor, Smartphone, Laptop, Tv, HardDrive, HelpCircle
+  Calendar, Monitor, Smartphone, Laptop, Tv, HardDrive, HelpCircle,
+  ShieldOff, Ban
 } from 'lucide-react'
+
+function getCsrf() {
+  return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
+}
+
+function isQuarantinedClient(client) {
+  if (!client) return false
+  if (client.is_blocked) return true
+  const name = `${client.name || ''} ${client.nickname || ''}`.toUpperCase()
+  return name.includes('[QUARANTINED]') || name.includes('[AI-QUARANTINED]')
+}
 import DoughnutChart from '../components/DoughnutChart'
 
 // --- Reusable Stat Card (modified from Dashboard) ---
@@ -90,12 +102,20 @@ function ClientHourlyChart({ data }) {
   return <canvas ref={canvasRef} className="w-full h-full" />
 }
 
-export default function ClientDetail({ user, total, blocked, top_domains = [], visited_domains = [], hourly, client, error }) {
+export default function ClientDetail({ user, total, blocked, top_domains = [], visited_domains = [], hourly, client: initialClient, error }) {
+  const [client, setClient] = useState(initialClient)
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const [domainSearch, setDomainSearch] = useState('')
   const [historySearch, setHistorySearch] = useState('')
   const [activeTab, setActiveTab] = useState('visited')
+  const [releasing, setReleasing] = useState(false)
+  const isAdmin = user?.role === 'admin'
+  const quarantined = isQuarantinedClient(client)
+
+  useEffect(() => {
+    setClient(initialClient)
+  }, [initialClient])
 
   useEffect(() => {
     if (!client?.id) {
@@ -111,6 +131,31 @@ export default function ClientDetail({ user, total, blocked, top_domains = [], v
       })
       .catch(() => setLoading(false))
   }, [client?.id])
+
+  const releaseQuarantine = async () => {
+    if (!client?.id) return
+    if (!confirm(`Remove quarantine for ${client.ip}?\n\nThis clears the quarantine label and re-allows DNS for this device.`)) {
+      return
+    }
+    setReleasing(true)
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+        body: JSON.stringify({ release_quarantine: true }),
+      })
+      if (!res.ok) {
+        alert('Failed to remove quarantine.')
+        return
+      }
+      const data = await res.json()
+      setClient(c => ({ ...c, ...data }))
+    } catch {
+      alert('Failed to remove quarantine.')
+    } finally {
+      setReleasing(false)
+    }
+  }
 
   if (error || !client) {
     return (
@@ -194,15 +239,40 @@ export default function ClientDetail({ user, total, blocked, top_domains = [], v
                   )}
                 </div>
               </div>
-              <div className="hidden sm:block">
+              <div className="flex flex-col items-end gap-2 shrink-0">
                 <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                   client.last_seen ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-slate-500/10 text-slate-500 border border-slate-500/20'
                 }`}>
                   <div className={`w-1.5 h-1.5 rounded-full ${client.last_seen ? 'bg-green-500 animate-pulse' : 'bg-slate-500'}`} />
                   {client.last_seen ? 'Online' : 'Offline'}
                 </span>
+                {quarantined && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-red-500/10 text-red-400 border border-red-500/20">
+                    <Ban size={10} /> Quarantined
+                  </span>
+                )}
               </div>
             </div>
+
+            {quarantined && isAdmin && (
+              <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-red-500/25 bg-red-500/5 px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-red-300">This device is quarantined</p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Remove quarantine to clear the label and restore normal DNS for {client.ip}.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={releaseQuarantine}
+                  disabled={releasing}
+                  className="btn-primary shrink-0 inline-flex items-center gap-2 justify-center"
+                >
+                  <ShieldOff size={14} />
+                  {releasing ? 'Removing…' : 'Remove Quarantine'}
+                </button>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard label="Total Queries" value={total} sub="Last 24h" icon={Clock} />

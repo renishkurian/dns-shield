@@ -5,6 +5,7 @@ Organized by feature area with role-based access control.
 import csv
 import io
 import json
+import re
 import subprocess
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -957,6 +958,37 @@ class ClientView(APIView):
         return Response(ser.errors, status=400)
 
 
+_QUARANTINE_NAME_RE = re.compile(
+    r'^\s*\[(?:AI-)?QUARANTINED\]\s*',
+    re.IGNORECASE,
+)
+
+
+def _strip_quarantine_name(name: str, ip: str = '') -> str:
+    cleaned = _QUARANTINE_NAME_RE.sub('', name or '').strip()
+    if cleaned == ip:
+        return ''
+    return cleaned
+
+
+def _release_client_quarantine(client):
+    """Clear AI quarantine label, full DNS block, and Quarantine group membership."""
+    fields = []
+    new_name = _strip_quarantine_name(client.name, client.ip)
+    if new_name != (client.name or ''):
+        client.name = new_name
+        fields.append('name')
+    if client.is_blocked:
+        client.is_blocked = False
+        fields.append('is_blocked')
+    if client.group_id and client.group and (client.group.name or '').lower() == 'quarantine':
+        client.group = None
+        fields.append('group')
+    if fields:
+        client.save(update_fields=fields)
+    return client
+
+
 class ClientDetailView(APIView):
     permission_classes = [IsAdminRole]
 
@@ -965,6 +997,13 @@ class ClientDetailView(APIView):
             obj = Client.objects.get(pk=pk)
         except Client.DoesNotExist:
             return Response({'error': 'Not found'}, status=404)
+
+        release = request.data.get('release_quarantine') in (True, 'true', '1', 1)
+        if release:
+            _release_client_quarantine(obj)
+            obj.refresh_from_db()
+            return Response(ClientSerializer(obj).data)
+
         ser = ClientSerializer(obj, data=request.data, partial=True)
         if not ser.is_valid():
             return Response(ser.errors, status=400)
@@ -976,8 +1015,11 @@ class ClientDetailView(APIView):
             else:
                 obj.shield_bypass = False
             obj.save(update_fields=['is_blocked', 'shield_bypass'])
+        # Unblocking also clears quarantine label so the UI updates
+        if 'is_blocked' in request.data and not obj.is_blocked:
+            _release_client_quarantine(obj)
+            obj.refresh_from_db()
         return Response(ClientSerializer(obj).data)
-
 
 # ─── SETTINGS ─────────────────────────────────────────────────────────────────
 

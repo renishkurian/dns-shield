@@ -143,14 +143,30 @@ def run_profiler(lookback_hours=None, force=False):
                 logger.warning('[AI THREAT INTEL] Flagging %s — %s', ip, reason)
                 quarantined += 1
 
-                BlockGroup.objects.get_or_create(
+                q_group, _ = BlockGroup.objects.get_or_create(
                     name='Quarantine',
                     defaults={'description': 'Automatically isolated by Smart AI.'},
                 )
                 client, _ = Client.objects.get_or_create(ip=ip)
-                if '[AI-QUARANTINED]' not in (client.name or ''):
-                    client.name = f'[AI-QUARANTINED] {(client.name or ip).strip()}'
-                    client.save(update_fields=['name'])
+                update_fields = []
+                if '[QUARANTINED]' not in (client.name or '').upper():
+                    base = (client.name or ip).strip()
+                    # Avoid stacking prefixes if an older AI-QUARANTINED label exists
+                    if base.upper().startswith('[AI-QUARANTINED]'):
+                        base = base.split(']', 1)[-1].strip() or ip
+                    client.name = f'[QUARANTINED] {base}'
+                    update_fields.append('name')
+                if not client.is_blocked:
+                    client.is_blocked = True
+                    update_fields.append('is_blocked')
+                if client.shield_bypass:
+                    client.shield_bypass = False
+                    update_fields.append('shield_bypass')
+                if client.group_id != q_group.id:
+                    client.group = q_group
+                    update_fields.append('group')
+                if update_fields:
+                    client.save(update_fields=update_fields)
 
                 SystemEvent.objects.create(
                     type='ai_quarantine',
