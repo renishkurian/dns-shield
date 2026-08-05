@@ -448,6 +448,7 @@ export default function AI({ user: currentUser }) {
                   Session cookie + organization ID from claude.ai (not Anthropic API keys).
                   Default is tried first; if it fails (expired session, rate limit, bad org),
                   the next account is used automatically.
+                  “Test connection” only checks login — not chat capacity or rate limits.
                 </p>
               </div>
               {!editing && (

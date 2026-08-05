@@ -184,7 +184,8 @@ def create_conversation(
             impersonate='chrome120',
             timeout=30,
         )
-        if response.status_code == 429 and attempt < max_retries - 1:
+        # 429 = rate limit, 529 = Claude temporarily overloaded
+        if response.status_code in (429, 529) and attempt < max_retries - 1:
             time.sleep(retry_delay)
             retry_delay *= 2
             continue
@@ -203,6 +204,10 @@ def create_conversation(
         if response.status_code == 429:
             err_msg, resets_at = parse_rate_limit_error(response, 'Rate limited on create')
             raise ClaudeRateLimitError(err_msg, resets_at)
+        if response.status_code == 529:
+            raise ClaudeRateLimitError(
+                'Claude.ai is temporarily overloaded (HTTP 529). Try again shortly.'
+            )
         raise RuntimeError(
             f'Create conversation failed (HTTP {response.status_code}): {response.text[:300]}'
         )
@@ -244,13 +249,20 @@ def ask_claude(
             stream=True,
             timeout=None,
         )
-        if response.status_code == 429:
-            rate_limit_msg, last_resets_at = parse_rate_limit_error(response, rate_limit_msg)
+        # 429 = rate limit, 529 = temporarily overloaded — both are retryable
+        if response.status_code in (429, 529):
+            if response.status_code == 429:
+                rate_limit_msg, last_resets_at = parse_rate_limit_error(response, rate_limit_msg)
+            else:
+                rate_limit_msg = 'Claude.ai is temporarily overloaded (HTTP 529). Try again shortly.'
+                last_resets_at = None
+                # Consume stream/body so the connection can close cleanly before retry
+                _read_error_body(response)
             if attempt < max_retries - 1:
                 wait = retry_delay
                 if last_resets_at and last_resets_at > time.time():
                     wait = max(wait, int(last_resets_at - time.time()) + 2)
-                logger.warning('Claude HTTP 429 — waiting %ss', wait)
+                logger.warning('Claude HTTP %s — waiting %ss', response.status_code, wait)
                 time.sleep(wait)
                 retry_delay = min(int(retry_delay * 1.5), 120)
                 continue
@@ -264,6 +276,10 @@ def ask_claude(
             raise ClaudeAuthError(f'Auth failed (HTTP {response.status_code}) — session key expired')
         if response.status_code == 429:
             raise ClaudeRateLimitError(rate_limit_msg, last_resets_at)
+        if response.status_code == 529:
+            raise ClaudeRateLimitError(
+                'Claude.ai is temporarily overloaded (HTTP 529). Try again shortly.'
+            )
         body_text = _read_error_body(response)
         raise RuntimeError(f'Completion failed (HTTP {response.status_code}): {body_text[:500]}')
 

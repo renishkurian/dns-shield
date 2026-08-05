@@ -400,14 +400,15 @@ def test_claude_account(account_id: str) -> dict:
 
     try:
         result = test_connection(session_key, org_id)
+        org_label = (result.get('org_name') or '').strip()
+        base = f'Session OK — logged in as {org_label}' if org_label else 'Session OK'
         return {
             'ok': True,
             'account_id': account_id,
             'name': name,
             'message': (
-                f'Connected as {result["org_name"]}'
-                if result.get('org_name')
-                else 'Connection OK'
+                f'{base}. Login works; AI Report can still fail if Claude is '
+                'overloaded, rate-limited, or the session expires later.'
             ),
             **{k: v for k, v in result.items() if k != 'ok'},
         }
