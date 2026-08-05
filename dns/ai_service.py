@@ -374,3 +374,44 @@ def delete_claude_account(account_id: str) -> None:
     if remaining and not any(a.get('is_default') for a in remaining):
         remaining[0]['is_default'] = True
     save_claude_browser_accounts(remaining)
+
+
+def test_claude_account(account_id: str) -> dict:
+    """Validate a stored Claude browser account against claude.ai."""
+    from dns.claude_browser import (
+        ClaudeAuthError,
+        ClaudeOrgError,
+        ClaudeRateLimitError,
+        test_connection,
+    )
+
+    account = next(
+        (a for a in get_claude_browser_accounts() if a.get('id') == account_id),
+        None,
+    )
+    if not account:
+        raise ValueError('Account not found.')
+
+    name = (account.get('name') or account_id).strip()
+    session_key = (account.get('session_key') or '').strip()
+    org_id = (account.get('org_id') or '').strip()
+    if not session_key or not org_id:
+        raise ValueError('Account is missing session key or organization ID.')
+
+    try:
+        result = test_connection(session_key, org_id)
+        return {
+            'ok': True,
+            'account_id': account_id,
+            'name': name,
+            'message': (
+                f'Connected as {result["org_name"]}'
+                if result.get('org_name')
+                else 'Connection OK'
+            ),
+            **{k: v for k, v in result.items() if k != 'ok'},
+        }
+    except (ClaudeAuthError, ClaudeOrgError, ClaudeRateLimitError) as e:
+        raise ValueError(str(e)) from e
+    except Exception as e:
+        raise ValueError(f'Connection failed: {e}') from e

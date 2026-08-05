@@ -331,3 +331,77 @@ def complete(
     if not (text or '').strip():
         raise ValueError('Empty response from Claude browser wrapper — check session key / org ID')
     return text.strip()
+
+
+def test_connection(session_key: str, org_id: str) -> dict:
+    """
+    Validate sessionKey + organization ID against claude.ai without a full completion.
+    Tries listing organizations first; falls back to creating a short-lived conversation.
+    Raises ClaudeAuthError / ClaudeOrgError / ClaudeRateLimitError / RuntimeError on failure.
+    Returns a small status dict on success.
+    """
+    from curl_cffi import requests
+
+    org_id = normalize_org_id(org_id)
+    if not org_id:
+        raise ClaudeOrgError('org_id is empty — set Organization ID in Claude account settings')
+    if not session_key:
+        raise ClaudeAuthError('session_key is empty')
+
+    headers = get_headers(session_key)
+    response = requests.get(
+        'https://claude.ai/api/organizations',
+        headers=headers,
+        impersonate='chrome120',
+        timeout=20,
+    )
+
+    if response.status_code in (401, 403):
+        raise ClaudeAuthError(
+            f'Auth failed (HTTP {response.status_code}) — session key expired or invalid'
+        )
+    if response.status_code == 429:
+        err_msg, resets_at = parse_rate_limit_error(response, 'Rate limited while testing connection')
+        raise ClaudeRateLimitError(err_msg, resets_at)
+
+    if response.status_code == 200:
+        try:
+            data = response.json()
+        except Exception:
+            data = None
+        org_list = data if isinstance(data, list) else (data.get('data') if isinstance(data, dict) else None)
+        if isinstance(org_list, list):
+            matched = None
+            for item in org_list:
+                if not isinstance(item, dict):
+                    continue
+                oid = str(item.get('uuid') or item.get('id') or '').strip()
+                if oid.lower() == org_id.lower():
+                    matched = item
+                    break
+            if matched is None:
+                available = [
+                    str(i.get('uuid') or i.get('id') or '')
+                    for i in org_list
+                    if isinstance(i, dict)
+                ]
+                hint = ', '.join(available[:5]) if available else '(none)'
+                raise ClaudeOrgError(
+                    f'Organization {org_id!r} is not on this session. Available: {hint}'
+                )
+            return {
+                'ok': True,
+                'method': 'organizations',
+                'org_id': org_id,
+                'org_name': matched.get('name') or matched.get('display_name') or '',
+            }
+
+    # Fallback: exercise the same create path used in production
+    create_conversation(
+        session_key,
+        org_id,
+        title='DNS Shield connection test',
+        system_prompt='',
+        max_retries=1,
+    )
+    return {'ok': True, 'method': 'create_conversation', 'org_id': org_id}

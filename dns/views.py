@@ -1552,6 +1552,21 @@ class ClaudeBrowserAccountDetailView(APIView):
             return Response({'error': str(e)}, status=404)
 
 
+class ClaudeBrowserAccountTestView(APIView):
+    """Validate sessionKey + org_id for one Claude browser account."""
+    permission_classes = [IsAdminRole]
+
+    def post(self, request, account_id):
+        from dns.ai_service import test_claude_account
+        try:
+            result = test_claude_account(account_id)
+            return Response(result)
+        except ValueError as e:
+            msg = str(e)
+            status = 404 if msg == 'Account not found.' else 400
+            return Response({'ok': False, 'error': msg}, status=status)
+
+
 # ─── NETWORK / IPTABLES ───────────────────────────────────────────────────────
 
 IPTABLES_RULES = {

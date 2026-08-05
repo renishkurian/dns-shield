@@ -52,6 +52,8 @@ export default function AI({ user: currentUser }) {
   const [form, setForm] = useState({ name: '', session_key: '', org_id: '', is_default: false })
   const [accountErr, setAccountErr] = useState('')
   const [accountSaving, setAccountSaving] = useState(false)
+  const [testingId, setTestingId] = useState(null)
+  const [testResults, setTestResults] = useState({}) // id -> { ok, message }
 
   const meta = PROVIDERS.find(p => p.value === provider) || PROVIDERS[0]
 
@@ -182,6 +184,11 @@ export default function AI({ user: currentUser }) {
       method: 'DELETE',
       headers: { 'X-CSRFToken': getCsrf() },
     })
+    setTestResults(prev => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
     loadAccounts()
   }
 
@@ -196,6 +203,36 @@ export default function AI({ user: currentUser }) {
       }),
     })
     loadAccounts()
+  }
+
+  const testConnection = async (a) => {
+    setTestingId(a.id)
+    setTestResults(prev => ({ ...prev, [a.id]: null }))
+    try {
+      const res = await fetch(`/api/ai/claude-accounts/${a.id}/test`, {
+        method: 'POST',
+        headers: { 'X-CSRFToken': getCsrf() },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.ok) {
+        setTestResults(prev => ({
+          ...prev,
+          [a.id]: { ok: false, message: data.error || 'Connection failed.' },
+        }))
+        return
+      }
+      setTestResults(prev => ({
+        ...prev,
+        [a.id]: { ok: true, message: data.message || 'Connection OK' },
+      }))
+    } catch {
+      setTestResults(prev => ({
+        ...prev,
+        [a.id]: { ok: false, message: 'Network error while testing.' },
+      }))
+    } finally {
+      setTestingId(null)
+    }
   }
 
   return (
@@ -421,50 +458,77 @@ export default function AI({ user: currentUser }) {
             </div>
 
             <div className="space-y-2">
-              {accounts.map(a => (
-                <div
-                  key={a.id}
-                  className="flex items-center gap-3 p-3 rounded-xl bg-slate-900/50 border border-slate-700/50"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-white">{a.name}</span>
-                      {a.is_default && (
-                        <span className="badge-green text-[10px]">Default</span>
-                      )}
-                      <span className="badge-green text-[10px]">Active</span>
+              {accounts.map(a => {
+                const result = testResults[a.id]
+                const isTesting = testingId === a.id
+                return (
+                  <div
+                    key={a.id}
+                    className="p-3 rounded-xl bg-slate-900/50 border border-slate-700/50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-white">{a.name}</span>
+                          {a.is_default && (
+                            <span className="badge-green text-[10px]">Default</span>
+                          )}
+                          {result?.ok === true && (
+                            <span className="badge-green text-[10px]">OK</span>
+                          )}
+                          {result?.ok === false && (
+                            <span className="badge-red text-[10px]">Failed</span>
+                          )}
+                          {!result && (
+                            <span className="badge-green text-[10px]">Active</span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-slate-500 font-mono truncate mt-0.5">
+                          {a.session_key_masked || '•••'} · org {a.org_id}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => testConnection(a)}
+                          disabled={isTesting}
+                          className="text-[11px] font-medium text-brand-400 hover:text-brand-300 disabled:opacity-50 disabled:cursor-wait underline-offset-2 hover:underline"
+                        >
+                          {isTesting ? 'Testing…' : 'Test connection'}
+                        </button>
+                        {!a.is_default && (
+                          <button
+                            onClick={() => setDefault(a)}
+                            className="p-1.5 text-slate-500 hover:text-yellow-400"
+                            title="Set as default"
+                          >
+                            <Star size={14} />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => startEdit(a)}
+                          className="p-1.5 text-slate-500 hover:text-white"
+                          title="Edit"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          onClick={() => removeAccount(a.id)}
+                          className="p-1.5 text-slate-500 hover:text-red-400"
+                          title="Delete"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-[10px] text-slate-500 font-mono truncate mt-0.5">
-                      {a.session_key_masked || '•••'} · org {a.org_id}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {!a.is_default && (
-                      <button
-                        onClick={() => setDefault(a)}
-                        className="p-1.5 text-slate-500 hover:text-yellow-400"
-                        title="Set as default"
-                      >
-                        <Star size={14} />
-                      </button>
+                    {result?.message && (
+                      <p className={`text-[11px] mt-2 ${result.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {result.message}
+                      </p>
                     )}
-                    <button
-                      onClick={() => startEdit(a)}
-                      className="p-1.5 text-slate-500 hover:text-white"
-                      title="Edit"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      onClick={() => removeAccount(a.id)}
-                      className="p-1.5 text-slate-500 hover:text-red-400"
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
                   </div>
-                </div>
-              ))}
+                )
+              })}
               {!accounts.length && !editing && (
                 <p className="text-xs text-slate-600 py-4 text-center">
                   No accounts yet. Add a Claude.ai session to use the browser wrapper.
