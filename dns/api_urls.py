@@ -62,10 +62,15 @@ urlpatterns = [
     # Network / iptables
     path('network/iptables', views.NetworkIPTablesView.as_view()),
     path('network/iptables/apply', views.NetworkIPTablesApplyView.as_view()),
+    path('network/iptables/remove', views.NetworkIPTablesRemoveView.as_view()),
     path('network/iptables/save', views.NetworkIPTablesSaveView.as_view()),
     path('network/tor/status', views.TorStatusView.as_view()),
     path('network/tor/toggle', views.TorToggleView.as_view()),
     path('network/scan', views.NetworkScanView.as_view()),
+
+    # Backup (Teleporter)
+    path('backup/export', views.BackupExportView.as_view()),
+    path('backup/import', views.BackupImportView.as_view()),
 
     # Users (admin only)
     path('users', views.UserListView.as_view()),

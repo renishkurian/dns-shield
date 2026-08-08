@@ -1764,15 +1764,23 @@ IPTABLES_RULES = {
 }
 
 
-def _iptables_check_cmd(rule_argv):
-    """Convert an -A append rule into an -C check rule."""
+def _iptables_swap_flag(rule_argv, new_flag):
+    """Convert an -A append rule into -C (check) or -D (delete)."""
     cmd = list(rule_argv)
     try:
         idx = cmd.index('-A')
-        cmd[idx] = '-C'
+        cmd[idx] = new_flag
     except ValueError:
         pass
     return cmd
+
+
+def _iptables_check_cmd(rule_argv):
+    return _iptables_swap_flag(rule_argv, '-C')
+
+
+def _iptables_delete_cmd(rule_argv):
+    return _iptables_swap_flag(rule_argv, '-D')
 
 
 def _iptables_active_map():
@@ -1858,6 +1866,53 @@ class NetworkIPTablesApplyView(APIView):
                 'output': output,
                 'error': error,
                 'active': _iptables_active_map(),
+            })
+        except Exception as exc:
+            return Response({'ok': False, 'error': str(exc)}, status=500)
+
+
+class NetworkIPTablesRemoveView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def post(self, request):
+        rule_key = request.data.get('rule')
+        rule = IPTABLES_RULES.get(rule_key)
+        if not rule:
+            return Response({'error': 'Unknown rule'}, status=400)
+        try:
+            check = subprocess.run(
+                ['sudo'] + _iptables_check_cmd(rule),
+                capture_output=True, text=True, timeout=5,
+            )
+            if check.returncode != 0:
+                return Response({
+                    'ok': True,
+                    'output': 'Rule already removed.',
+                    'error': '',
+                    'active': _iptables_active_map(),
+                })
+
+            # Delete all matching copies (Apply may have been clicked more than once)
+            deleted = 0
+            while True:
+                result = subprocess.run(
+                    ['sudo'] + _iptables_delete_cmd(rule),
+                    capture_output=True, text=True, timeout=10,
+                )
+                if result.returncode != 0:
+                    break
+                deleted += 1
+                if deleted > 50:
+                    break
+
+            active = _iptables_active_map()
+            still_on = active.get(rule_key, False)
+            ok = not still_on
+            return Response({
+                'ok': ok,
+                'output': f'Removed ({deleted} match{"es" if deleted != 1 else ""}).' if ok else 'Failed to remove rule.',
+                'error': '' if ok else (result.stderr or '').strip(),
+                'active': active,
             })
         except Exception as exc:
             return Response({'ok': False, 'error': str(exc)}, status=500)
@@ -2033,78 +2088,122 @@ class SystemReloadProxyView(APIView):
         return Response({'ok': True})
 
 
-class SystemBackupView(APIView):
+class BackupExportView(APIView):
     permission_classes = [IsAdminRole]
 
     def get(self, request):
-        from datetime import datetime, timezone
-        data = {
-            'version': '1.0',
-            'exported_at': datetime.now(timezone.utc).isoformat(),
-            'blocked_domains': list(BlockedDomain.objects.values(
-                'domain', 'block_type', 'layer', 'enabled', 'comment'
-            )),
-            'patterns': list(Pattern.objects.values(
-                'name', 'pattern', 'pattern_type', 'enabled', 'comment'
-            )),
-            'adlists': list(Adlist.objects.values('url', 'name', 'enabled', 'comment')),
-            'allowlist': list(AllowedDomain.objects.values(
-                'domain', 'allow_type', 'enabled', 'comment'
-            )),
-            'safesearch': list(SafeSearch.objects.values('engine', 'enabled', 'level')),
-            'settings': {s.key: s.value for s in SystemSetting.objects.all()},
-            'clients': list(Client.objects.values('ip', 'name', 'group', 'comment')),
-        }
-        response = HttpResponse(json.dumps(data, indent=2), content_type='application/json')
-        response['Content-Disposition'] = 'attachment; filename="dns-shield-backup.json"'
+        from dns.backup_manager import export_config
+        include_secrets = str(request.query_params.get('include_secrets', 'false')).lower() in (
+            '1', 'true', 'yes',
+        )
+        payload = export_config(include_secrets=include_secrets)
+        date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
+        body = json.dumps(payload, indent=2, default=str)
+        response = HttpResponse(body, content_type='application/json')
+        response['Content-Disposition'] = (
+            f'attachment; filename="dns-shield-backup-{date_str}.json"'
+        )
+        return response
+
+
+class BackupImportView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def post(self, request):
+        from dns.backup_manager import BackupError, import_config
+
+        mode = (request.data.get('mode') or 'merge').strip().lower()
+        if mode not in ('merge', 'replace'):
+            return Response({'error': 'mode must be "merge" or "replace".'}, status=400)
+
+        raw = None
+        upload = request.FILES.get('file')
+        if upload is not None:
+            try:
+                raw = upload.read().decode('utf-8')
+            except Exception:
+                return Response({'error': 'Could not read uploaded file as UTF-8 text.'}, status=400)
+        elif request.body:
+            # Allow raw JSON body for API clients
+            try:
+                raw = request.body.decode('utf-8') if isinstance(request.body, (bytes, bytearray)) else request.body
+            except Exception:
+                raw = None
+
+        if not raw:
+            return Response({'error': 'Upload a backup JSON file (field name: file).'}, status=400)
+
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            return Response({'error': f'Malformed JSON: {exc}'}, status=400)
+
+        try:
+            ok, summary = import_config(payload, mode=mode)
+        except BackupError as exc:
+            return Response({'error': str(exc)}, status=400)
+        except Exception as exc:
+            return Response({'error': f'Import failed: {exc}'}, status=400)
+
+        # Signal proxy + local DNS to reload in-memory caches
+        _reload_matcher()
+
+        created_total = sum(summary.get('created', {}).values())
+        updated_total = sum(summary.get('updated', {}).values())
+        severity = 'warning' if mode == 'replace' else 'info'
+        SystemEvent.objects.create(
+            type='config_import',
+            severity=severity,
+            message=(
+                f'Config import ({mode}): {created_total} created, {updated_total} updated'
+                + (f', {len(summary.get("errors") or [])} errors' if summary.get('errors') else '')
+            ),
+            data=summary,
+        )
+
+        return Response({
+            'ok': ok,
+            'mode': mode,
+            'summary': summary,
+            'proxy_note': (
+                'Matcher and local DNS reload has been signaled. '
+                'The DNS proxy picks up BlockGroup/rule/local-DNS changes within about a second; '
+                'per-client flags (block/bypass/Tor) refresh within ~5 seconds. '
+                'No proxy restart is required.'
+            ),
+        })
+
+
+class SystemBackupView(APIView):
+    """Legacy backup endpoint — prefer /api/backup/export and /api/backup/import."""
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        from dns.backup_manager import export_config
+        include_secrets = str(request.query_params.get('include_secrets', 'false')).lower() in (
+            '1', 'true', 'yes',
+        )
+        payload = export_config(include_secrets=include_secrets)
+        date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
+        body = json.dumps(payload, indent=2, default=str)
+        response = HttpResponse(body, content_type='application/json')
+        response['Content-Disposition'] = (
+            f'attachment; filename="dns-shield-backup-{date_str}.json"'
+        )
         return response
 
     def post(self, request):
-        """Restore from backup JSON."""
+        """Restore via legacy JSON body — always merge mode."""
+        from dns.backup_manager import BackupError, import_config
         try:
             data = json.loads(request.body)
-            _restore_backup(data, request.user)
-            return Response({'ok': True})
+            ok, summary = import_config(data, mode='merge')
+            _reload_matcher()
+            return Response({'ok': ok, 'summary': summary})
+        except BackupError as exc:
+            return Response({'error': str(exc)}, status=400)
         except Exception as exc:
             return Response({'error': str(exc)}, status=400)
-
-
-def _restore_backup(data, user):
-    """Restore all backup data."""
-    # Blocked domains
-    for item in data.get('blocked_domains', []):
-        BlockedDomain.objects.update_or_create(
-            domain=item['domain'],
-            defaults={**{k: v for k, v in item.items() if k != 'domain'}, 'created_by': user}
-        )
-    # Patterns
-    Pattern.objects.all().delete()
-    for item in data.get('patterns', []):
-        Pattern.objects.create(**{**item, 'created_by': user})
-    # Adlists
-    for item in data.get('adlists', []):
-        Adlist.objects.update_or_create(
-            url=item['url'],
-            defaults={**{k: v for k, v in item.items() if k != 'url'}, 'created_by': user}
-        )
-    # Allowlist
-    for item in data.get('allowlist', []):
-        AllowedDomain.objects.update_or_create(
-            domain=item['domain'],
-            defaults={**{k: v for k, v in item.items() if k != 'domain'}, 'created_by': user}
-        )
-    # Safe search
-    for item in data.get('safesearch', []):
-        SafeSearch.objects.update_or_create(engine=item['engine'], defaults=item)
-    # Settings
-    for key, value in data.get('settings', {}).items():
-        SystemSetting.objects.update_or_create(key=key, defaults={'value': str(value)})
-    # Clients
-    for item in data.get('clients', []):
-        Client.objects.update_or_create(ip=item['ip'], defaults=item)
-
-    from dns_proxy.matcher import get_matcher
-    get_matcher().reload()
 
 
 # ─── VPN ──────────────────────────────────────────────────────────────────────

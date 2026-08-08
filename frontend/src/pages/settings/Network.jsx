@@ -65,10 +65,11 @@ export default function NetworkSettings({ user }) {
     if (isAdmin) fetchRules({ showDump: false })
   }, [isAdmin])
 
-  const apply = async (ruleId) => {
-    setResults(r => ({ ...r, [ruleId]: { loading: true } }))
+  const mutateRule = async (ruleId, action) => {
+    const endpoint = action === 'remove' ? '/api/network/iptables/remove' : '/api/network/iptables/apply'
+    setResults(r => ({ ...r, [ruleId]: { loading: true, action } }))
     try {
-      const res = await fetch('/api/network/iptables/apply', {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
         body: JSON.stringify({ rule: ruleId }),
@@ -79,21 +80,21 @@ export default function NetworkSettings({ user }) {
       if (data.active && typeof data.active === 'object') {
         setActive(data.active)
       } else if (ok) {
-        setActive(a => ({ ...a, [ruleId]: true }))
+        setActive(a => ({ ...a, [ruleId]: action !== 'remove' }))
       }
       setResults(r => ({
         ...r,
         [ruleId]: {
           ok,
           msg: ok
-            ? (detail || 'Rule applied successfully.')
-            : (detail || `Failed to apply rule (HTTP ${res.status}).`),
+            ? (detail || (action === 'remove' ? 'Rule removed.' : 'Rule applied successfully.'))
+            : (detail || `Failed to ${action} rule (HTTP ${res.status}).`),
         },
       }))
     } catch (e) {
       setResults(r => ({
         ...r,
-        [ruleId]: { ok: false, msg: e.message || 'Network error while applying rule.' },
+        [ruleId]: { ok: false, msg: e.message || `Network error while trying to ${action} rule.` },
       }))
     }
   }
@@ -163,10 +164,26 @@ export default function NetworkSettings({ user }) {
                   )}
                 </div>
                 {isAdmin && (
-                  <button onClick={() => apply(rule.id)} disabled={rs?.loading}
-                    className="btn-primary shrink-0 text-xs">
-                    {rs?.loading ? 'Applying…' : isActive ? 'Re-apply' : 'Apply'}
-                  </button>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <button
+                      onClick={() => mutateRule(rule.id, 'apply')}
+                      disabled={rs?.loading}
+                      className="btn-primary text-xs"
+                    >
+                      {rs?.loading && rs?.action === 'apply'
+                        ? 'Applying…'
+                        : isActive ? 'Re-apply' : 'Apply'}
+                    </button>
+                    {isActive && (
+                      <button
+                        onClick={() => mutateRule(rule.id, 'remove')}
+                        disabled={rs?.loading}
+                        className="btn-ghost text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/20"
+                      >
+                        {rs?.loading && rs?.action === 'remove' ? 'Removing…' : 'Remove'}
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

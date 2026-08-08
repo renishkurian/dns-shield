@@ -5,7 +5,7 @@ import {
   LayoutDashboard, List, Shield, Filter, CheckCircle, Globe,
   Users, Search, Network, LogOut,
   ChevronLeft, ChevronRight, Wifi, User, Database, BookOpen, Sparkles,
-  ClipboardList, Activity, Key, ShieldAlert, Clock, Bell, Palette
+  ClipboardList, Activity, Key, ShieldAlert, Clock, Bell, Palette, Download
 } from 'lucide-react'
 import ShieldControl from './ShieldControl'
 
@@ -44,6 +44,7 @@ const navGroups = [
     items: [
       { label: 'DNS Config', href: '/settings/dns', icon: Network },
       { label: 'Network & Tor', href: '/settings/network', icon: Globe, adminOnly: true },
+      { label: 'Backup', href: '/settings/backup', icon: Download, adminOnly: true },
       { label: 'Alerts', href: '/settings/alerts', icon: Bell },
       { label: 'Appearance', href: '/settings/appearance', icon: Palette },
       { label: 'AI Integrations', href: '/settings/ai', icon: Sparkles },
