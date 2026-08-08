@@ -8,6 +8,7 @@ import json
 import re
 import subprocess
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 
 from django.contrib.auth import authenticate, login, logout
@@ -1207,8 +1208,10 @@ class AIReportView(APIView):
     """
     permission_classes = [IsAdminRole]
 
-    MAX_DOMAINS = 120
-    BATCH_SIZE = 60
+    # Smaller payloads = fewer Claude rate limits (MarketMind does 1 request / job).
+    MAX_DOMAINS = 40
+    BATCH_SIZE = 40
+    BATCH_PAUSE_SEC = 45
     CATEGORIES = (
         'movies', 'streaming', 'news', 'adult', 'ads', 'shopping', 'social',
         'gaming', 'tech', 'cdn', 'mail', 'education', 'finance', 'search',
@@ -1308,7 +1311,11 @@ class AIReportView(APIView):
         summary_bits = []
         errors = []
 
-        for i in range(0, len(domains), self.BATCH_SIZE):
+        batches = list(range(0, len(domains), self.BATCH_SIZE))
+        for bi, i in enumerate(batches):
+            if bi > 0:
+                # Give Claude rate-limit windows a breath between batches
+                time.sleep(self.BATCH_PAUSE_SEC)
             batch = domains[i:i + self.BATCH_SIZE]
             try:
                 batch_items, batch_summary = self._categorize_batch(ask_ai, batch, request.user)
@@ -1316,7 +1323,13 @@ class AIReportView(APIView):
                 if batch_summary:
                     summary_bits.append(batch_summary)
             except Exception as e:
-                errors.append(str(e))
+                err = str(e).strip()
+                # One warning is enough — do not duplicate identical batch failures
+                if err and err not in errors:
+                    errors.append(err)
+                # Stop further batches when Claude is rate-limited across accounts
+                if 'rate limited' in err.lower() or 'All Claude browser accounts failed' in err:
+                    break
 
         # Merge hit counts / last_seen / clients; fill gaps AI skipped
         by_domain = {}

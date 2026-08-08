@@ -1,9 +1,48 @@
 import json
 import uuid
+import time
+import threading
 from dns.models import SystemSetting
 
 
 ACCOUNTS_KEY = 'ai_claude_browser_accounts'
+
+# Per-account cooldown after Claude rate/overload limits (unix timestamp).
+_claude_cooldowns: dict[str, float] = {}
+_claude_cooldown_lock = threading.Lock()
+# Cap how long we will wait for a single rate-limit window (seconds).
+_MAX_RATE_LIMIT_WAIT = 300
+# When Claude returns a generic "try again later" with no reset time.
+_DEFAULT_RATE_LIMIT_COOLDOWN = 90
+
+
+def _account_cooldown_key(account: dict) -> str:
+    return str(account.get('id') or account.get('name') or account.get('org_id') or '')
+
+
+def _get_account_cooldown(account: dict) -> float:
+    key = _account_cooldown_key(account)
+    if not key:
+        return 0.0
+    with _claude_cooldown_lock:
+        return float(_claude_cooldowns.get(key) or 0.0)
+
+
+def _set_account_cooldown(account: dict, until: float) -> None:
+    key = _account_cooldown_key(account)
+    if not key:
+        return
+    with _claude_cooldown_lock:
+        prev = float(_claude_cooldowns.get(key) or 0.0)
+        _claude_cooldowns[key] = max(prev, until)
+
+
+def _clear_account_cooldown(account: dict) -> None:
+    key = _account_cooldown_key(account)
+    if not key:
+        return
+    with _claude_cooldown_lock:
+        _claude_cooldowns.pop(key, None)
 
 
 def get_ai_config():
@@ -64,14 +103,38 @@ def ordered_claude_accounts() -> list:
     return defaults + others
 
 
+def _rate_limit_wait_seconds(resets_at) -> float:
+    """How long to cool down after a rate-limit error."""
+    now = time.time()
+    if resets_at and resets_at > now:
+        return min(resets_at - now + 2, _MAX_RATE_LIMIT_WAIT)
+    return float(_DEFAULT_RATE_LIMIT_COOLDOWN)
+
+
 def _ask_via_claude_browser(system_prompt: str, user_prompt: str, model: str, feature: str):
     """
-    Call Claude.ai via browser wrapper. If multiple accounts are configured,
-    try the default first and automatically fall through to the next on failure
-    (expired session, bad org, rate limit, empty reply, etc.).
+    Call Claude.ai via browser wrapper (MarketMind-style).
+
+    MarketMind sticks to one session and retries deeply inside ask_claude (5x).
+    We do the same: one create + one ask per account. Rate-limit waits happen
+    *inside* ask_claude/create_conversation — we do NOT spam create+ask across
+    every account in a tight loop (that burns all quotas).
+
+    Failover rules:
+    - Auth / bad org → next account immediately
+    - Rate limit after deep retries → mark cooldown, try next account (skip if still cooling)
+    - Empty reply / other errors → next account
+
     Returns (response_text, tokens_in, tokens_out, used_model_label).
     """
-    from dns.claude_browser import create_conversation, ask_claude, compose_prompt
+    from dns.claude_browser import (
+        ClaudeAuthError,
+        ClaudeOrgError,
+        ClaudeRateLimitError,
+        create_conversation,
+        ask_claude,
+        compose_prompt,
+    )
 
     accounts = ordered_claude_accounts()
     if not accounts:
@@ -82,24 +145,44 @@ def _ask_via_claude_browser(system_prompt: str, user_prompt: str, model: str, fe
 
     used_model = model or 'claude-sonnet-5'
     prompt = compose_prompt(system_prompt, user_prompt)
-    multi = len(accounts) > 1
-    # Fail over quickly when backups exist; single account keeps normal retries.
-    create_retries = 1 if multi else 3
-    ask_retries = 1 if multi else 4
     errors = []
+    multi = len(accounts) > 1
+
+    # If every account is cooling down, wait for the earliest one (once).
+    now = time.time()
+    cooling = [(a, _get_account_cooldown(a)) for a in accounts if _get_account_cooldown(a) > now]
+    ready_count = len(accounts) - len(cooling)
+    if ready_count == 0 and cooling:
+        cooling.sort(key=lambda x: x[1])
+        earliest, until = cooling[0]
+        wait = min(until - now + 2, _MAX_RATE_LIMIT_WAIT)
+        name = (earliest.get('name') or 'account').strip()
+        print(f'Claude browser: all accounts cooling down — waiting {int(wait)}s for "{name}"')
+        time.sleep(max(wait, 0))
+        _clear_account_cooldown(earliest)
 
     for account in accounts:
         name = (account.get('name') or account.get('id') or 'account').strip()
         session_key = (account.get('session_key') or '').strip()
         org_id = (account.get('org_id') or '').strip()
+
+        until = _get_account_cooldown(account)
+        if until > time.time():
+            left = int(until - time.time())
+            msg = f'{name}: still rate-limited (cooldown {left}s left)'
+            errors.append(msg)
+            print(f'Claude browser skip — {msg}')
+            continue
+
         try:
+            # MarketMind: create once (internal 429 retries), then ask once (5 completion retries).
             conv_id = create_conversation(
                 session_key,
                 org_id,
                 title=f'DNS Shield ({feature})',
                 model=used_model,
                 system_prompt='',
-                max_retries=create_retries,
+                max_retries=3,
             )
             response_text, tokens_in, tokens_out = ask_claude(
                 session_key,
@@ -108,15 +191,34 @@ def _ask_via_claude_browser(system_prompt: str, user_prompt: str, model: str, fe
                 conv_id=conv_id,
                 model=used_model,
                 minimal_tools=True,
-                max_retries=ask_retries,
+                max_retries=5,
             )
             response_text = (response_text or '').strip()
             if not response_text:
                 raise ValueError('Empty response — check session key / org ID')
+            _clear_account_cooldown(account)
             label = f'{used_model}@{name}' if multi else used_model
-            if multi and errors:
-                print(f'Claude browser: account "{name}" succeeded after failover ({len(errors)} failed)')
+            if errors:
+                print(f'Claude browser: account "{name}" succeeded after prior failures')
             return response_text, tokens_in, tokens_out, label
+
+        except ClaudeRateLimitError as e:
+            wait = _rate_limit_wait_seconds(getattr(e, 'resets_at', None))
+            _set_account_cooldown(account, time.time() + wait)
+            msg = f'{name}: {e}'
+            errors.append(msg)
+            print(
+                f'Claude browser rate limited — {msg} '
+                f'(cooldown {int(wait)}s, trying next account if any)'
+            )
+            continue
+
+        except (ClaudeAuthError, ClaudeOrgError) as e:
+            msg = f'{name}: {e}'
+            errors.append(msg)
+            print(f'Claude browser account failed — {msg}')
+            continue
+
         except Exception as e:
             msg = f'{name}: {e}'
             errors.append(msg)
@@ -124,7 +226,10 @@ def _ask_via_claude_browser(system_prompt: str, user_prompt: str, model: str, fe
             continue
 
     raise ValueError(
-        'All Claude browser accounts failed:\n' + '\n'.join(f'  • {e}' for e in errors)
+        'All Claude browser accounts failed:\n'
+        + '\n'.join(f'  • {e}' for e in errors)
+        + '\nWait for the Claude.ai rate-limit window to clear (often 15–60+ min), '
+        'then retry once — do not spam Generate.'
     )
 
 

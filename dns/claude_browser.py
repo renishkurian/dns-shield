@@ -4,7 +4,7 @@ Claude.ai browser/session wrapper for DNS Shield.
 Uses curl_cffi to call claude.ai web completion endpoints with a session cookie
 (sessionKey) + organization UUID — not the Anthropic API.
 
-Adapted from the MarketMind/claude browser client; trimmed to chat completions only.
+Aligned with the MarketMind claude browser client (create + completion retries).
 """
 from __future__ import annotations
 
@@ -25,7 +25,8 @@ _USER_AGENT = (
     'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
 )
 _BROWSER_EXTRAS: Optional[dict] = None
-_MINIMAL_TOOLS = []  # DNS Shield prompts don't need web_search by default
+# DNS Shield classification does not need web_search / artifacts tools.
+_MINIMAL_TOOLS = []
 
 
 class ClaudeAuthError(PermissionError):
@@ -93,6 +94,7 @@ def _read_error_body(response) -> str:
 
 
 def parse_rate_limit_error(response, default_msg: str):
+    """Parse Claude rate-limit body. Returns (message, resets_at_unix_or_None)."""
     try:
         body_text = _read_error_body(response)
         err_json = json.loads(body_text)
@@ -101,15 +103,16 @@ def parse_rate_limit_error(response, default_msg: str):
             msg_json = json.loads(raw_msg)
             resets_after = msg_json.get('resetsAfterSeconds')
             if resets_after is not None:
+                wait_s = max(int(resets_after), 1)
                 return (
-                    f'Rate limited by Claude.ai. Resets in {resets_after} seconds.',
-                    None,
+                    f'Rate limited by Claude.ai. Resets in {wait_s} seconds. Please wait and try again.',
+                    time.time() + wait_s,
                 )
             resets_at = msg_json.get('resetsAt')
             if resets_at is not None:
-                timestamp = resets_at / 1000.0 if resets_at > 1e11 else resets_at
+                timestamp = resets_at / 1000.0 if resets_at > 1e11 else float(resets_at)
                 return (
-                    f'Rate limited by Claude.ai. Resets at {time.ctime(timestamp)}.',
+                    f'Rate limited by Claude.ai. Resets at {time.ctime(timestamp)}. Please wait and try again.',
                     timestamp,
                 )
         except Exception:
@@ -125,7 +128,8 @@ def _build_completion_payload(prompt: str, model: str, *, minimal_tools: bool = 
     tools = _MINIMAL_TOOLS if minimal_tools else extras.get('tools', [])
     return {
         'prompt': prompt,
-        'timezone': 'UTC',
+        # Match MarketMind / typical India timezone used by the working client
+        'timezone': 'Asia/Calcutta',
         'personalized_styles': extras.get('personalized_styles', []),
         'locale': 'en-US',
         'model': model,
@@ -142,6 +146,12 @@ def _build_completion_payload(prompt: str, model: str, *, minimal_tools: bool = 
 
 
 def compose_prompt(system_prompt: str, user_message: str) -> str:
+    """
+    Single completion body for claude.ai /completion.
+
+    The web UI typically shows only this string, not create_conversation's
+    system_prompt field — always merge instructions + user data here.
+    """
     system = (system_prompt or '').strip()
     user = (user_message or '').strip()
     if system and user:
@@ -157,6 +167,7 @@ def create_conversation(
     system_prompt: Optional[str] = None,
     max_retries: int = 3,
 ) -> str:
+    """Create a chat conversation (MarketMind-aligned retries)."""
     from curl_cffi import requests
 
     org_id = normalize_org_id(org_id)
@@ -182,13 +193,24 @@ def create_conversation(
                 'system_prompt': system_prompt or '',
             },
             impersonate='chrome120',
-            timeout=30,
+            timeout=15,
         )
-        # 429 = rate limit, 529 = Claude temporarily overloaded
-        if response.status_code in (429, 529) and attempt < max_retries - 1:
-            time.sleep(retry_delay)
-            retry_delay *= 2
-            continue
+        if response.status_code in (429, 529):
+            if attempt < max_retries - 1:
+                logger.warning(
+                    'Rate limited on create (HTTP %s). Retrying in %ss (attempt %s/%s)...',
+                    response.status_code,
+                    retry_delay,
+                    attempt + 1,
+                    max_retries,
+                )
+                print(
+                    f'Rate limited on create (HTTP {response.status_code}). '
+                    f'Retrying in {retry_delay}s (Attempt {attempt + 1}/{max_retries})...'
+                )
+                time.sleep(retry_delay)
+                retry_delay *= 2
+                continue
         break
 
     if response is None:
@@ -199,10 +221,12 @@ def create_conversation(
             raise ClaudeAuthError(f'Auth failed (HTTP {response.status_code}) — session key expired')
         if response.status_code == 404:
             raise ClaudeOrgError(
-                f'Organization not found (HTTP 404) — check org_id: {org_id!r}'
+                f'Organization not found (HTTP 404) — check org_id for this session: {org_id!r}'
             )
         if response.status_code == 429:
-            err_msg, resets_at = parse_rate_limit_error(response, 'Rate limited on create')
+            err_msg, resets_at = parse_rate_limit_error(
+                response, 'Rate limited on create — wait and retry'
+            )
             raise ClaudeRateLimitError(err_msg, resets_at)
         if response.status_code == 529:
             raise ClaudeRateLimitError(
@@ -212,7 +236,8 @@ def create_conversation(
             f'Create conversation failed (HTTP {response.status_code}): {response.text[:300]}'
         )
 
-    time.sleep(1)
+    # MarketMind waits 2s so the conversation is ready before completion
+    time.sleep(2)
     return conv_id
 
 
@@ -224,8 +249,11 @@ def ask_claude(
     model: str = _DEFAULT_MODEL,
     *,
     minimal_tools: bool = True,
-    max_retries: int = 4,
+    max_retries: int = 5,
 ) -> tuple[str, int, int]:
+    """
+    Stream a completion (MarketMind-aligned: 5 retries, 8s base backoff, up to 120s).
+    """
     from curl_cffi import requests
 
     org_id = normalize_org_id(org_id)
@@ -239,6 +267,13 @@ def ask_claude(
     rate_limit_msg = 'Rate limited on completion — wait and retry'
     response = None
 
+    logger.info(
+        '[Claude] completion conv=%s… prompt_chars=%d minimal_tools=%s',
+        str(conv_id)[:8],
+        len(prompt_text),
+        minimal_tools,
+    )
+
     for attempt in range(max_retries):
         payload = _build_completion_payload(prompt_text, model, minimal_tools=minimal_tools)
         response = requests.post(
@@ -249,20 +284,24 @@ def ask_claude(
             stream=True,
             timeout=None,
         )
-        # 429 = rate limit, 529 = temporarily overloaded — both are retryable
         if response.status_code in (429, 529):
             if response.status_code == 429:
                 rate_limit_msg, last_resets_at = parse_rate_limit_error(response, rate_limit_msg)
             else:
                 rate_limit_msg = 'Claude.ai is temporarily overloaded (HTTP 529). Try again shortly.'
                 last_resets_at = None
-                # Consume stream/body so the connection can close cleanly before retry
                 _read_error_body(response)
             if attempt < max_retries - 1:
                 wait = retry_delay
                 if last_resets_at and last_resets_at > time.time():
                     wait = max(wait, int(last_resets_at - time.time()) + 2)
-                logger.warning('Claude HTTP %s — waiting %ss', response.status_code, wait)
+                logger.warning(
+                    '[Claude] HTTP %s on completion — waiting %ss (attempt %s/%s)',
+                    response.status_code,
+                    wait,
+                    attempt + 1,
+                    max_retries,
+                )
                 time.sleep(wait)
                 retry_delay = min(int(retry_delay * 1.5), 120)
                 continue
@@ -278,10 +317,23 @@ def ask_claude(
             raise ClaudeRateLimitError(rate_limit_msg, last_resets_at)
         if response.status_code == 529:
             raise ClaudeRateLimitError(
-                'Claude.ai is temporarily overloaded (HTTP 529). Try again shortly.'
+                'Claude.ai is temporarily overloaded (HTTP 529). Try again shortly.',
+                last_resets_at,
             )
         body_text = _read_error_body(response)
-        raise RuntimeError(f'Completion failed (HTTP {response.status_code}): {body_text[:500]}')
+        err_msg = ''
+        if body_text.strip():
+            try:
+                err_data = json.loads(body_text)
+                err_msg = err_data.get('error', {}).get('message', '') or str(err_data)
+            except Exception:
+                err_msg = body_text[:500]
+        if not err_msg or err_msg.isspace():
+            err_msg = (
+                f'HTTP {response.status_code} with empty body — '
+                'check session key, org ID, and model access'
+            )
+        raise RuntimeError(f'Completion failed (HTTP {response.status_code}): {err_msg}')
 
     full_text = ''
     input_tokens = 0
@@ -328,7 +380,6 @@ def complete(
 ) -> str:
     """Create a conversation and return the assistant text."""
     prompt = compose_prompt(system_prompt, user_prompt)
-    # Instructions go in the completion body (web UI shows that), keep create system empty-ish
     conv_id = create_conversation(
         session_key,
         org_id,
@@ -353,8 +404,6 @@ def test_connection(session_key: str, org_id: str) -> dict:
     """
     Validate sessionKey + organization ID against claude.ai without a full completion.
     Tries listing organizations first; falls back to creating a short-lived conversation.
-    Raises ClaudeAuthError / ClaudeOrgError / ClaudeRateLimitError / RuntimeError on failure.
-    Returns a small status dict on success.
     """
     from curl_cffi import requests
 
@@ -412,7 +461,6 @@ def test_connection(session_key: str, org_id: str) -> dict:
                 'org_name': matched.get('name') or matched.get('display_name') or '',
             }
 
-    # Fallback: exercise the same create path used in production
     create_conversation(
         session_key,
         org_id,
