@@ -87,6 +87,18 @@ export default function AIReport({ user }) {
   const [saved, setSaved] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [loadingSaved, setLoadingSaved] = useState(true)
+  const [categoryCacheCount, setCategoryCacheCount] = useState(0)
+  const [clearingCategories, setClearingCategories] = useState(false)
+
+  const refreshCategoryCache = async () => {
+    try {
+      const res = await fetch('/api/ai/domain-categories?limit=1')
+      const data = await res.json().catch(() => ({}))
+      setCategoryCacheCount(typeof data.count === 'number' ? data.count : 0)
+    } catch {
+      setCategoryCacheCount(0)
+    }
+  }
 
   const refreshSaved = async () => {
     try {
@@ -102,7 +114,31 @@ export default function AIReport({ user }) {
 
   useEffect(() => {
     refreshSaved()
+    refreshCategoryCache()
   }, [])
+
+  const clearCategoryCache = async () => {
+    if (!categoryCacheCount) return
+    if (!confirm(
+      `Clear all ${categoryCacheCount} cached domain categories?\n`
+      + 'Next report will send those domains to Claude again.',
+    )) return
+    setClearingCategories(true)
+    try {
+      const res = await fetch('/api/ai/domain-categories', {
+        method: 'DELETE',
+        headers: { 'X-CSRFToken': getCsrf() },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(data.error || 'Failed to clear category cache')
+        return
+      }
+      setCategoryCacheCount(0)
+    } finally {
+      setClearingCategories(false)
+    }
+  }
 
   const showReport = (data, id = null) => {
     setReport(data)
@@ -193,6 +229,11 @@ export default function AIReport({ user }) {
         return
       }
       showReport(data)
+      if (typeof data.category_cache_size === 'number') {
+        setCategoryCacheCount(data.category_cache_size)
+      } else {
+        await refreshCategoryCache()
+      }
       await refreshSaved()
     } catch (err) {
       setError(err?.message || 'Report failed')
@@ -353,9 +394,25 @@ export default function AIReport({ user }) {
                 </button>
               ))}
             </div>
+            <div className="mt-4 pt-4 border-t border-slate-700/50 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] text-slate-500">
+                Category cache: <span className="text-slate-300 font-semibold">{categoryCacheCount}</span> domains
+                {' '}(known names skip Claude)
+              </p>
+              <button
+                type="button"
+                onClick={clearCategoryCache}
+                disabled={!categoryCacheCount || clearingCategories}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-400 border border-slate-700 hover:text-red-300 hover:border-red-500/30 disabled:opacity-40 disabled:pointer-events-none"
+                title="Clear domain category lookup table"
+              >
+                <Trash2 size={12} />
+                {clearingCategories ? 'Clearing…' : 'Clear category table'}
+              </button>
+            </div>
             {loading && (
               <p className="text-xs text-slate-500 mt-4">
-                Collecting unique DNS names and sending them to AI — this can take a minute.
+                Using cached categories where possible; only new domains go to AI.
               </p>
             )}
           </form>
@@ -456,6 +513,12 @@ export default function AIReport({ user }) {
                       <span> of {report.domains_found} unique</span>
                     )}
                   </div>
+                  {(report.cache_hits != null || report.ai_classified != null) && (
+                    <div>
+                      Cache {report.cache_hits ?? 0} · AI {report.ai_classified ?? 0}
+                      {report.unknown_sent != null ? ` · sent ${report.unknown_sent}` : ''}
+                    </div>
+                  )}
                   {(report.cached || report.id) && (
                     <div className="text-brand-400/90">Saved report #{report.id || selectedId}</div>
                   )}
@@ -568,24 +631,11 @@ export default function AIReport({ user }) {
                               <ExternalLink size={11} className="shrink-0 opacity-70" />
                             </a>
                           </td>
-                          <td className="px-4 py-3 max-w-[220px]" title={clientTitle || '—'}>
+                          <td className="px-4 py-3 max-w-[260px]" title={clientTitle || '—'}>
                             {clients.length ? (
-                              <div className="flex flex-wrap gap-1">
-                                {clients.map(c => (
-                                  <span
-                                    key={c.ip}
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-800/80 border border-slate-700/60 text-[10px] text-slate-300"
-                                    title={`${c.ip} · ${c.hits ?? 0} hits`}
-                                  >
-                                    <span className="font-semibold text-slate-200 truncate max-w-[100px]">
-                                      {c.name && c.name !== c.ip ? c.name : c.ip}
-                                    </span>
-                                    {c.name && c.name !== c.ip && (
-                                      <span className="font-mono text-slate-500 truncate max-w-[90px]">{c.ip}</span>
-                                    )}
-                                  </span>
-                                ))}
-                              </div>
+                              <p className="text-[11px] text-slate-300 truncate whitespace-nowrap">
+                                {clients.map(c => (c.name && c.name !== c.ip ? c.name : c.ip)).join(', ')}
+                              </p>
                             ) : (
                               <span className="text-xs text-slate-600">—</span>
                             )}

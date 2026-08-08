@@ -222,6 +222,29 @@ class AIReportCache(models.Model):
         return f'AI Report {self.range_from.date()} → {self.range_to.date()} ({self.domains_analyzed})'
 
 
+class DomainCategory(models.Model):
+    """
+    Persistent domain → content category lookup for AI Report.
+    Known domains are reused so Claude only classifies new names (saves tokens).
+    """
+    domain = models.CharField(max_length=255, unique=True, db_index=True)
+    category = models.CharField(max_length=40, db_index=True, default='other')
+    site_name = models.CharField(max_length=255, blank=True)
+    url = models.CharField(max_length=512, blank=True)
+    confidence = models.CharField(max_length=16, blank=True, default='medium')
+    source = models.CharField(max_length=40, blank=True, default='ai')
+    hit_count = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['domain']
+        verbose_name_plural = 'domain categories'
+
+    def __str__(self):
+        return f'{self.domain} → {self.category}'
+
+
 class LocalDnsRecord(models.Model):
     """Pi-hole-style local A/AAAA record: domain → IP."""
     domain = models.CharField(max_length=255, unique=True, db_index=True)

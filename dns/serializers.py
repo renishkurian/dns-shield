@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 from dns.models import (
     QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer,
     ScheduledRule, AlertConfig, SystemEvent, AIUsageLog, DomainTrust,
-    AIReportCache, LocalDnsRecord, LocalCnameRecord,
+    AIReportCache, DomainCategory, LocalDnsRecord, LocalCnameRecord,
 )
 from blocks.models import BlockedDomain, Pattern, Adlist, GravityDomain, AllowedDomain, BlockGroup, AppCategory, AppControl
 from users.models import UserProfile
@@ -361,6 +361,16 @@ class DomainTrustSerializer(serializers.ModelSerializer):
 
     def get_is_high_trust(self, obj):
         return obj.trust_score >= 70
+
+
+class DomainCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DomainCategory
+        fields = [
+            'id', 'domain', 'category', 'site_name', 'url',
+            'confidence', 'source', 'hit_count', 'updated_at', 'created_at',
+        ]
+        read_only_fields = ['updated_at', 'created_at', 'hit_count']
 
 
 class AIReportCacheListSerializer(serializers.ModelSerializer):

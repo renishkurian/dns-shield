@@ -25,7 +25,7 @@ from rest_framework.views import APIView
 from dns.models import (
     QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer,
     ScheduledRule, AlertConfig, SystemEvent, AIUsageLog, DomainTrust,
-    AIReportCache, LocalDnsRecord, LocalCnameRecord,
+    AIReportCache, DomainCategory, LocalDnsRecord, LocalCnameRecord,
 )
 from dns.permissions import IsAdminRole
 from dns.serializers import (
@@ -37,6 +37,7 @@ from dns.serializers import (
     ScheduledRuleSerializer, AlertConfigSerializer, SystemEventSerializer,
     AIUsageLogSerializer, DomainTrustSerializer,
     AIReportCacheListSerializer, AIReportCacheDetailSerializer,
+    DomainCategorySerializer,
     LocalDnsRecordSerializer, LocalCnameRecordSerializer,
 )
 
@@ -1201,15 +1202,35 @@ class AIExplainView(APIView):
             return Response({'error': str(e)}, status=500)
 
 
+class DomainCategoryListView(APIView):
+    """List / clear the AI Report domain→category lookup table."""
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        qs = DomainCategory.objects.all().order_by('domain')
+        try:
+            limit = min(max(int(request.query_params.get('limit', 500)), 1), 5000)
+        except (TypeError, ValueError):
+            limit = 500
+        return Response({
+            'count': DomainCategory.objects.count(),
+            'items': DomainCategorySerializer(qs[:limit], many=True).data,
+        })
+
+    def delete(self, request):
+        deleted, _ = DomainCategory.objects.all().delete()
+        return Response({'ok': True, 'deleted': deleted})
+
+
 class AIReportView(APIView):
     """
     Date-range browsing report:
-    unique DNS domains → AI → URL + content category (movies, news, adult, ads, shopping, …).
+    unique DNS domains → local category cache → AI for unknowns only.
     """
     permission_classes = [IsAdminRole]
 
-    # Smaller payloads = fewer Claude rate limits (MarketMind does 1 request / job).
-    MAX_DOMAINS = 40
+    # Cap report size; only uncached domains are sent to Claude (BATCH_SIZE each call).
+    MAX_DOMAINS = 120
     BATCH_SIZE = 40
     BATCH_PAUSE_SEC = 45
     CATEGORIES = (
@@ -1221,6 +1242,7 @@ class AIReportView(APIView):
     def post(self, request):
         from dns.domain_trust import dedupe_domains, normalize_domain
         from dns.ai_service import ask_ai
+        from django.db.models import F
 
         start_raw = (request.data.get('from') or request.data.get('start') or '').strip()
         end_raw = (request.data.get('to') or request.data.get('end') or '').strip()
@@ -1311,25 +1333,79 @@ class AIReportView(APIView):
         summary_bits = []
         errors = []
 
-        batches = list(range(0, len(domains), self.BATCH_SIZE))
-        for bi, i in enumerate(batches):
-            if bi > 0:
-                # Give Claude rate-limit windows a breath between batches
-                time.sleep(self.BATCH_PAUSE_SEC)
-            batch = domains[i:i + self.BATCH_SIZE]
-            try:
-                batch_items, batch_summary = self._categorize_batch(ask_ai, batch, request.user)
-                items.extend(batch_items)
-                if batch_summary:
-                    summary_bits.append(batch_summary)
-            except Exception as e:
-                err = str(e).strip()
-                # One warning is enough — do not duplicate identical batch failures
-                if err and err not in errors:
-                    errors.append(err)
-                # Stop further batches when Claude is rate-limited across accounts
-                if 'rate limited' in err.lower() or 'All Claude browser accounts failed' in err:
-                    break
+        # Reuse cached categories — only send unknowns to Claude (saves tokens).
+        cached_rows = {
+            row.domain: row
+            for row in DomainCategory.objects.filter(domain__in=domains)
+        }
+        from_cache = []
+        unknown = []
+        for d in domains:
+            row = cached_rows.get(d)
+            if row and row.category:
+                from_cache.append({
+                    'domain': d,
+                    'url': row.url or f'https://{d}',
+                    'site_name': row.site_name or d,
+                    'category': row.category,
+                    'confidence': row.confidence or 'medium',
+                    'source': 'cache',
+                })
+            else:
+                unknown.append(d)
+
+        if from_cache:
+            DomainCategory.objects.filter(domain__in=[i['domain'] for i in from_cache]).update(
+                hit_count=F('hit_count') + 1
+            )
+            items.extend(from_cache)
+
+        ai_new = 0
+        if unknown:
+            batches = list(range(0, len(unknown), self.BATCH_SIZE))
+            for bi, i in enumerate(batches):
+                if bi > 0:
+                    time.sleep(self.BATCH_PAUSE_SEC)
+                batch = unknown[i:i + self.BATCH_SIZE]
+                try:
+                    batch_items, batch_summary = self._categorize_batch(ask_ai, batch, request.user)
+                    for raw_item in batch_items:
+                        d = normalize_domain(raw_item.get('domain') or '')
+                        if not d:
+                            continue
+                        cat = (raw_item.get('category') or 'other').strip().lower()
+                        if cat not in self.CATEGORIES:
+                            cat = 'other'
+                        site_name = (raw_item.get('site_name') or d).strip() or d
+                        url = (raw_item.get('url') or f'https://{d}').strip() or f'https://{d}'
+                        confidence = (raw_item.get('confidence') or 'medium').strip().lower() or 'medium'
+                        items.append({
+                            'domain': d,
+                            'url': url,
+                            'site_name': site_name,
+                            'category': cat,
+                            'confidence': confidence,
+                            'source': 'ai',
+                        })
+                        DomainCategory.objects.update_or_create(
+                            domain=d,
+                            defaults={
+                                'category': cat,
+                                'site_name': site_name[:255],
+                                'url': url[:512],
+                                'confidence': confidence[:16],
+                                'source': 'ai',
+                            },
+                        )
+                        ai_new += 1
+                    if batch_summary:
+                        summary_bits.append(batch_summary)
+                except Exception as e:
+                    err = str(e).strip()
+                    if err and err not in errors:
+                        errors.append(err)
+                    if 'rate limited' in err.lower() or 'All Claude browser accounts failed' in err:
+                        break
 
         # Merge hit counts / last_seen / clients; fill gaps AI skipped
         by_domain = {}
@@ -1361,6 +1437,7 @@ class AIReportView(APIView):
                     'hits': hit_map.get(d, 0),
                     'last_seen': last_seen_map[d].isoformat() if last_seen_map.get(d) else None,
                     'clients': _clients_for(d),
+                    'source': 'fallback',
                 }
 
         items = sorted(by_domain.values(), key=lambda x: (-(x.get('hits') or 0), x.get('domain') or ''))
@@ -1372,10 +1449,15 @@ class AIReportView(APIView):
             for name in sorted(cat_counts.keys(), key=lambda n: (-cat_counts[n], n))
         ]
 
+        cache_hits = len(from_cache)
         summary = ' '.join(summary_bits).strip()
         if not summary:
             top = ', '.join(f"{c['name']} ({c['count']})" for c in categories[:5])
             summary = f'Categorized {len(items)} unique domains. Top categories: {top}.'
+        summary = (
+            f'{summary} '
+            f'(cache hits: {cache_hits}, AI classified: {ai_new}, unknown sent: {len(unknown)}).'
+        ).strip()
 
         payload = {
             'summary': summary,
@@ -1385,6 +1467,10 @@ class AIReportView(APIView):
             'domains_found': total_unique,
             'domains_analyzed': len(items),
             'truncated': total_unique > len(items),
+            'cache_hits': cache_hits,
+            'ai_classified': ai_new,
+            'unknown_sent': len(unknown),
+            'category_cache_size': DomainCategory.objects.count(),
             'categories': categories,
             'items': items,
         }

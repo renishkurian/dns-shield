@@ -93,6 +93,7 @@ urlpatterns = [
     path('ai/report', views.AIReportView.as_view()),
     path('ai/report/cache', views.AIReportCacheListView.as_view()),
     path('ai/report/cache/<int:pk>', views.AIReportCacheDetailView.as_view()),
+    path('ai/domain-categories', views.DomainCategoryListView.as_view()),
     path('ai/claude-accounts', views.ClaudeBrowserAccountListView.as_view()),
     path('ai/claude-accounts/<str:account_id>/test', views.ClaudeBrowserAccountTestView.as_view()),
     path('ai/claude-accounts/<str:account_id>', views.ClaudeBrowserAccountDetailView.as_view()),
