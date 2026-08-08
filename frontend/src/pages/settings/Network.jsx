@@ -41,28 +41,67 @@ export default function NetworkSettings({ user }) {
   const isAdmin = user?.role === 'admin'
 
   const fetchRules = async () => {
-    const res = await fetch('/api/network/iptables')
-    const data = await res.json()
-    setIptablesOutput(data.rules || data.error)
+    try {
+      const res = await fetch('/api/network/iptables')
+      const data = await res.json()
+      setIptablesOutput(data.rules || data.error || 'No output')
+    } catch (e) {
+      setIptablesOutput(e.message || 'Failed to fetch rules')
+    }
   }
 
   const apply = async (ruleId) => {
     setResults(r => ({ ...r, [ruleId]: { loading: true } }))
-    const res = await fetch('/api/network/iptables/apply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
-      body: JSON.stringify({ rule: ruleId }),
-    })
-    const data = await res.json()
-    setResults(r => ({ ...r, [ruleId]: { ok: data.ok, msg: data.output || data.error } }))
+    try {
+      const res = await fetch('/api/network/iptables/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+        body: JSON.stringify({ rule: ruleId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      const ok = res.ok && !!data.ok
+      const detail = (data.output || data.error || '').trim()
+      setResults(r => ({
+        ...r,
+        [ruleId]: {
+          ok,
+          msg: ok
+            ? (detail || 'Rule applied successfully.')
+            : (detail || `Failed to apply rule (HTTP ${res.status}).`),
+        },
+      }))
+    } catch (e) {
+      setResults(r => ({
+        ...r,
+        [ruleId]: { ok: false, msg: e.message || 'Network error while applying rule.' },
+      }))
+    }
   }
 
   const saveRules = async () => {
-    const res = await fetch('/api/network/iptables/save', {
-      method: 'POST', headers: { 'X-CSRFToken': getCsrf() },
-    })
-    const data = await res.json()
-    setResults(r => ({ ...r, _save: { ok: data.ok, msg: data.output } }))
+    setResults(r => ({ ...r, _save: { loading: true } }))
+    try {
+      const res = await fetch('/api/network/iptables/save', {
+        method: 'POST', headers: { 'X-CSRFToken': getCsrf() },
+      })
+      const data = await res.json().catch(() => ({}))
+      const ok = res.ok && !!data.ok
+      const detail = (data.output || data.error || '').trim()
+      setResults(r => ({
+        ...r,
+        _save: {
+          ok,
+          msg: ok
+            ? (detail || 'Rules saved.')
+            : (detail || 'Failed to save rules.'),
+        },
+      }))
+    } catch (e) {
+      setResults(r => ({
+        ...r,
+        _save: { ok: false, msg: e.message || 'Network error while saving.' },
+      }))
+    }
   }
 
   return (
@@ -91,7 +130,10 @@ export default function NetworkSettings({ user }) {
                     {rule.cmd}
                   </code>
                   {rs?.msg && (
-                    <p className={`text-xs mt-1 ${rs.ok ? 'text-green-400' : 'text-red-400'}`}>{rs.msg}</p>
+                    <p className={`text-xs mt-2 flex items-center gap-1.5 ${rs.ok ? 'text-green-400' : 'text-red-400'}`}>
+                      {rs.ok ? <CheckCircle size={12} /> : <AlertTriangle size={12} />}
+                      {rs.msg}
+                    </p>
                   )}
                 </div>
                 {isAdmin && (
@@ -112,13 +154,14 @@ export default function NetworkSettings({ user }) {
           <Terminal size={14} /> Show current rules
         </button>
         {isAdmin && (
-          <button onClick={saveRules} className="btn-primary text-xs">
-            <Save size={14} /> Save persistent
+          <button onClick={saveRules} disabled={results._save?.loading} className="btn-primary text-xs">
+            <Save size={14} /> {results._save?.loading ? 'Saving…' : 'Save persistent'}
           </button>
         )}
-        {results._save && (
-          <span className={`text-xs self-center ${results._save.ok ? 'text-green-400' : 'text-red-400'}`}>
-            {results._save.ok ? '✓ Saved' : '✗ Failed'}
+        {results._save?.msg && (
+          <span className={`text-xs self-center flex items-center gap-1 ${results._save.ok ? 'text-green-400' : 'text-red-400'}`}>
+            {results._save.ok ? <CheckCircle size={12} /> : <AlertTriangle size={12} />}
+            {results._save.msg}
           </span>
         )}
       </div>

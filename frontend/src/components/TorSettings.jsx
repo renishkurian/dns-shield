@@ -5,6 +5,34 @@ function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
 }
 
+/** Works on HTTP LAN IPs where navigator.clipboard is unavailable. */
+async function copyText(text) {
+  if (!text) return false
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // fall through
+    }
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    ta.setSelectionRange(0, text.length)
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
 export default function TorSettings() {
   const [status, setStatus] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -28,9 +56,15 @@ export default function TorSettings() {
 
   useEffect(() => { fetchStatus() }, [])
 
-  const copyCmd = () => {
-    if (!status?.install_command) return
-    navigator.clipboard.writeText(status.install_command)
+  const installCmd = status?.install_command || 'sudo apt-get install -y tor'
+
+  const copyCmd = async () => {
+    const ok = await copyText(installCmd)
+    if (!ok) {
+      setError('Could not copy — select the command and copy manually.')
+      return
+    }
+    setError('')
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -82,14 +116,14 @@ export default function TorSettings() {
           Install Tor on this host, then recheck. Per-client &quot;Route via Tor&quot; needs the service running.
         </p>
         <div className="flex items-center gap-2 bg-surface-100 px-3 py-2 rounded-lg">
-          <code className="text-xs font-mono text-slate-300 flex-1 break-all">
-            {status?.install_command || 'sudo apt-get install -y tor'}
+          <code className="text-xs font-mono text-slate-300 flex-1 break-all select-all">
+            {installCmd}
           </code>
           <button
             type="button"
             onClick={copyCmd}
             title="Copy install command"
-            className="text-slate-500 hover:text-brand-400 transition-colors shrink-0"
+            className="text-slate-500 hover:text-brand-400 transition-colors shrink-0 p-1"
           >
             {copied ? <CheckCircle size={14} className="text-green-400" /> : <Copy size={14} />}
           </button>

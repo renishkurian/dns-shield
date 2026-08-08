@@ -1792,9 +1792,14 @@ class NetworkIPTablesApplyView(APIView):
                 capture_output=True, text=True, timeout=10
             )
             ok = result.returncode == 0
-            return Response({'ok': ok, 'output': result.stdout, 'error': result.stderr})
+            # iptables often returns empty stdout on success — give the UI a clear message
+            output = (result.stdout or '').strip()
+            error = (result.stderr or '').strip()
+            if ok and not output:
+                output = f'Applied: {" ".join(rule)}'
+            return Response({'ok': ok, 'output': output, 'error': error})
         except Exception as exc:
-            return Response({'error': str(exc)}, status=500)
+            return Response({'ok': False, 'error': str(exc)}, status=500)
 
 
 class NetworkIPTablesSaveView(APIView):
