@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
 import { Plus, Trash2, ToggleLeft, ToggleRight, TestTube2 } from 'lucide-react'
+import { useAlert } from '../../components/Toast'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
@@ -75,6 +76,7 @@ function AddDomainModal({ onClose, onSave, user }) {
 AddDomainModal.propTypes = { onClose: PropTypes.func, onSave: PropTypes.func, user: PropTypes.object }
 
 export default function BlocksDomains({ user, domains: initialDomains = [] }) {
+  const { alert, confirm } = useAlert()
   const [domains, setDomains] = useState(initialDomains)
   const [showAdd, setShowAdd] = useState(false)
   const [testDomain, setTestDomain] = useState('')
@@ -93,13 +95,13 @@ export default function BlocksDomains({ user, domains: initialDomains = [] }) {
   }
 
   const deleteDomain = async (id) => {
-    if (!confirm('Delete this rule?')) return
+    if (!(await confirm('Delete this rule?'))) return
     await fetch(`/api/blocks/domains/${id}`, { method: 'DELETE', headers: { 'X-CSRFToken': getCsrf() } })
     setDomains(d => d.filter(b => b.id !== id))
   }
 
   const bulkDelete = async () => {
-    if (!confirm(`Delete ${selected.size} rules?`)) return
+    if (!(await confirm(`Delete ${selected.size} rules?`))) return
     for (const id of selected) {
       await fetch(`/api/blocks/domains/${id}`, { method: 'DELETE', headers: { 'X-CSRFToken': getCsrf() } })
     }

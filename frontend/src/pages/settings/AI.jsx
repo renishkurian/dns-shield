@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
 import { Sparkles, Save, Shield, Plus, Pencil, Trash2, Star, X, Clock, Play } from 'lucide-react'
+import { useAlert } from '../../components/Toast'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
@@ -35,6 +36,7 @@ function nextRunLabel(lastRunIso, intervalHours) {
 }
 
 export default function AI({ user: currentUser }) {
+  const { alert, confirm } = useAlert()
   const [enabled, setEnabled] = useState(false)
   const [provider, setProvider] = useState('openai')
   const [apiKey, setApiKey] = useState('')
@@ -179,7 +181,7 @@ export default function AI({ user: currentUser }) {
   }
 
   const removeAccount = async (id) => {
-    if (!confirm('Delete this Claude browser account?')) return
+    if (!(await confirm('Delete this Claude browser account?'))) return
     await fetch(`/api/ai/claude-accounts/${id}`, {
       method: 'DELETE',
       headers: { 'X-CSRFToken': getCsrf() },

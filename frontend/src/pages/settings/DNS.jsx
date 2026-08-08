@@ -2,12 +2,14 @@ import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
 import { Globe, Save, RefreshCw, CheckCircle } from 'lucide-react'
+import { useAlert } from '../../components/Toast'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
 }
 
 export default function DNSSettings({ user, settings: initial = {} }) {
+  const { alert, confirm } = useAlert()
   const [settings, setSettings] = useState(initial)
   const [saved, setSaved] = useState(false)
   const [reloading, setReloading] = useState(false)
@@ -39,7 +41,7 @@ export default function DNSSettings({ user, settings: initial = {} }) {
         upstream_port: data.recommendation.port
       }))
     } else {
-      alert("Unbound service not found on this system.")
+      await alert("Unbound service not found on this system.", 'error')
     }
   }
 

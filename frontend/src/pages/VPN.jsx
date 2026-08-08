@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
-import { 
+import { useAlert } from '../components/Toast'
+import {
   Shield, Plus, Trash2, Key, Download, RefreshCw, 
   Settings, CheckCircle, Smartphone, Monitor, Server, 
   Cpu, Lock, Activity, Globe
@@ -12,6 +13,7 @@ function getCsrf() {
 }
 
 export default function VPN({ user: currentUser, server: initialServer, peers: initialPeers = [] }) {
+  const { alert, confirm } = useAlert()
   const [server, setServer] = useState(initialServer)
   const [peers, setPeers] = useState(initialPeers)
   const [peerForm, setPeerForm] = useState({ name: '', allowed_ips: '10.0.0.X/32' })
@@ -57,7 +59,7 @@ export default function VPN({ user: currentUser, server: initialServer, peers: i
   }
 
   const deletePeer = async (id) => {
-    if (!confirm('Delete this peer?')) return
+    if (!(await confirm('Delete this peer?'))) return
     const res = await fetch(`/api/vpn/peers/${id}`, {
       method: 'DELETE',
       headers: { 'X-CSRFToken': getCsrf() }

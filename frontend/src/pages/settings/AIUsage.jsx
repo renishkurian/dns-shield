@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
+import { useAlert } from '../../components/Toast'
 import {
   Sparkles, Download, Trash2, Search, X, RefreshCw
 } from 'lucide-react'
@@ -71,6 +72,7 @@ function Meta({ label, value, badge }) {
 Meta.propTypes = { label: PropTypes.string, value: PropTypes.string, badge: PropTypes.string }
 
 export default function AIUsage({ user, logs: initial = [] }) {
+  const { alert, confirm } = useAlert()
   const [logs, setLogs] = useState(initial)
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
@@ -99,7 +101,7 @@ export default function AIUsage({ user, logs: initial = [] }) {
   }, [search, status])
 
   const clearAll = async () => {
-    if (!confirm('Clear ALL AI usage logs?')) return
+    if (!(await confirm('Clear ALL AI usage logs?'))) return
     await fetch('/api/ai/usage', { method: 'DELETE', headers: { 'X-CSRFToken': getCsrf() } })
     setLogs([])
     setSelected(null)

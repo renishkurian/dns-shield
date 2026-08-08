@@ -2,12 +2,14 @@ import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
 import { Plus, Trash2 } from 'lucide-react'
+import { useAlert } from '../../components/Toast'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
 }
 
 export default function Allowlist({ user, allowlist: initial = [] }) {
+  const { alert, confirm } = useAlert()
   const [items, setItems] = useState(initial)
   const [form, setForm] = useState({ domain: '', allow_type: 'exact', comment: '' })
   const [showAdd, setShowAdd] = useState(false)
@@ -36,7 +38,7 @@ export default function Allowlist({ user, allowlist: initial = [] }) {
   }
 
   const remove = async (id) => {
-    if (!confirm('Remove from allowlist?')) return
+    if (!(await confirm('Remove from allowlist?'))) return
     await fetch(`/api/blocks/allowlist/${id}`, { method: 'DELETE', headers: { 'X-CSRFToken': getCsrf() } })
     setItems(i => i.filter(x => x.id !== id))
   }

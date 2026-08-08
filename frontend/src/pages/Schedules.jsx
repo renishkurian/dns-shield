@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
-import { 
+import { useAlert } from '../components/Toast'
+import {
   Calendar, Clock, Plus, Trash2, Edit2, 
   CheckCircle, AlertCircle, Save, X, ChevronRight,
   Shield, Globe, Filter, Sparkles
@@ -14,6 +15,7 @@ function getCsrf() {
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 export default function Schedules({ user, schedules: initialArr = [], groups = [] }) {
+  const { alert, confirm } = useAlert()
   const [schedules, setSchedules] = useState(initialArr)
   const [showAdd, setShowAdd] = useState(false)
   const [editingId, setEditingId] = useState(null)
@@ -46,7 +48,7 @@ export default function Schedules({ user, schedules: initialArr = [], groups = [
   }
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this schedule?')) return
+    if (!(await confirm('Delete this schedule?'))) return
     const res = await fetch(`/api/schedules/${id}`, {
       method: 'DELETE',
       headers: { 'X-CSRFToken': getCsrf() }

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
 import { Plus, Trash2, RefreshCw, ToggleLeft, ToggleRight, Terminal, X } from 'lucide-react'
+import { useAlert } from '../components/Toast'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
@@ -76,6 +77,7 @@ function GravityModal({ onClose, onComplete }) {
 GravityModal.propTypes = { onClose: PropTypes.func }
 
 export default function Lists({ user, lists: initial = [], uniqueCount: initialUnique = 0 }) {
+  const { alert, confirm } = useAlert()
   const [lists, setLists] = useState(initial)
   const [uniqueCount, setUniqueCount] = useState(initialUnique)
   const [showGravity, setShowGravity] = useState(false)
@@ -94,7 +96,7 @@ export default function Lists({ user, lists: initial = [], uniqueCount: initialU
   }
 
   const remove = async (id) => {
-    if (!confirm('Delete adlist?')) return
+    if (!(await confirm('Delete adlist?'))) return
     await fetch(`/api/lists/${id}`, { method: 'DELETE', headers: { 'X-CSRFToken': getCsrf() } })
     setLists(l => l.filter(x => x.id !== id))
   }

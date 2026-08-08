@@ -2,12 +2,14 @@ import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
 import { Plus, Trash2, Folder, Users, Shield, Hash } from 'lucide-react'
+import { useAlert } from '../../components/Toast'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
 }
 
 export default function Groups({ user: currentUser, groups: initialGroups = [] }) {
+  const { alert, confirm } = useAlert()
   const [groups, setGroups] = useState(initialGroups)
   const [newGroupName, setNewGroupName] = useState('')
   const [newGroupDesc, setNewGroupDesc] = useState('')
@@ -34,7 +36,7 @@ export default function Groups({ user: currentUser, groups: initialGroups = [] }
   }
 
   const deleteGroup = async (id) => {
-    if (!confirm('Delete this group? Rules associated with it will lose their group assignment.')) return
+    if (!(await confirm('Delete this group? Rules associated with it will lose their group assignment.'))) return
     const res = await fetch(`/api/blocks/groups/${id}`, {
       method: 'DELETE',
       headers: { 'X-CSRFToken': getCsrf() }

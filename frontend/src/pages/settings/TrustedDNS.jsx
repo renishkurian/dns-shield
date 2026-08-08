@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
 import { ShieldCheck, Trash2, Search, RefreshCw } from 'lucide-react'
+import { useAlert } from '../../components/Toast'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
@@ -21,6 +22,7 @@ function labelBadge(label) {
 }
 
 export default function TrustedDNS({ user }) {
+  const { alert, confirm } = useAlert()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
@@ -51,7 +53,7 @@ export default function TrustedDNS({ user }) {
   }, [search, label, highOnly])
 
   const removeOne = async (id, domain) => {
-    if (!confirm(`Remove trust score for ${domain}?`)) return
+    if (!(await confirm(`Remove trust score for ${domain}?`))) return
     const res = await fetch(`/api/ai/trusted-dns/${id}`, {
       method: 'DELETE',
       headers: { 'X-CSRFToken': getCsrf() },
@@ -60,7 +62,7 @@ export default function TrustedDNS({ user }) {
   }
 
   const clearAll = async () => {
-    if (!confirm('Clear ALL AI trust scores? Next intelligence runs will re-evaluate every domain.')) return
+    if (!(await confirm('Clear ALL AI trust scores? Next intelligence runs will re-evaluate every domain.'))) return
     const res = await fetch('/api/ai/trusted-dns', {
       method: 'DELETE',
       headers: { 'X-CSRFToken': getCsrf() },

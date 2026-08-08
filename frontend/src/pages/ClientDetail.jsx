@@ -20,6 +20,7 @@ function isQuarantinedClient(client) {
   return name.includes('[QUARANTINED]') || name.includes('[AI-QUARANTINED]')
 }
 import DoughnutChart from '../components/DoughnutChart'
+import { useAlert } from '../components/Toast'
 
 // --- Reusable Stat Card (modified from Dashboard) ---
 function StatCard({ label, value, sub, icon: Icon, color = 'brand' }) {
@@ -103,6 +104,7 @@ function ClientHourlyChart({ data }) {
 }
 
 export default function ClientDetail({ user, total, blocked, top_domains = [], visited_domains = [], hourly, client: initialClient, error }) {
+  const { alert, confirm } = useAlert()
   const [client, setClient] = useState(initialClient)
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
@@ -134,9 +136,7 @@ export default function ClientDetail({ user, total, blocked, top_domains = [], v
 
   const releaseQuarantine = async () => {
     if (!client?.id) return
-    if (!confirm(`Remove quarantine for ${client.ip}?\n\nThis clears the quarantine label and re-allows DNS for this device.`)) {
-      return
-    }
+    if (!(await confirm(`Remove quarantine for ${client.ip}?\n\nThis clears the quarantine label and re-allows DNS for this device.`))) return
     setReleasing(true)
     try {
       const res = await fetch(`/api/clients/${client.id}`, {
@@ -145,13 +145,13 @@ export default function ClientDetail({ user, total, blocked, top_domains = [], v
         body: JSON.stringify({ release_quarantine: true }),
       })
       if (!res.ok) {
-        alert('Failed to remove quarantine.')
+        await alert('Failed to remove quarantine.', 'error')
         return
       }
       const data = await res.json()
       setClient(c => ({ ...c, ...data }))
     } catch {
-      alert('Failed to remove quarantine.')
+      await alert('Failed to remove quarantine.', 'error')
     } finally {
       setReleasing(false)
     }

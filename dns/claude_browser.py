@@ -208,6 +208,14 @@ def create_conversation(
                     f'Rate limited on create (HTTP {response.status_code}). '
                     f'Retrying in {retry_delay}s (Attempt {attempt + 1}/{max_retries})...'
                 )
+                try:
+                    from dns.ai_progress import report_progress
+                    report_progress(
+                        f'Rate limited creating chat — retry in {retry_delay}s '
+                        f'({attempt + 1}/{max_retries})…'
+                    )
+                except Exception:
+                    pass
                 time.sleep(retry_delay)
                 retry_delay *= 2
                 continue
@@ -302,6 +310,14 @@ def ask_claude(
                     attempt + 1,
                     max_retries,
                 )
+                try:
+                    from dns.ai_progress import report_progress
+                    report_progress(
+                        f'Claude busy (HTTP {response.status_code}) — waiting {wait}s '
+                        f'(attempt {attempt + 1}/{max_retries})…'
+                    )
+                except Exception:
+                    pass
                 time.sleep(wait)
                 retry_delay = min(int(retry_delay * 1.5), 120)
                 continue

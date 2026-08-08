@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
 import { Code, Key, Copy, RefreshCw, Trash2, CheckCircle, AlertCircle, Info } from 'lucide-react'
+import { useAlert } from '../../components/Toast'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
 }
 
 export default function ApiToken({ user }) {
+  const { alert, confirm } = useAlert()
   const [token, setToken] = useState(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
@@ -37,7 +39,7 @@ export default function ApiToken({ user }) {
   }
 
   const revoke = async () => {
-    if (!confirm('Revoke your API token? Any integrations using it will stop working immediately.')) return
+    if (!(await confirm('Revoke your API token? Any integrations using it will stop working immediately.'))) return
     await fetch('/api/auth/token', { method: 'DELETE', headers: { 'X-CSRFToken': getCsrf() } })
     setToken(null)
     setMsg({ type: 'ok', text: 'Token revoked successfully.' })

@@ -2,12 +2,14 @@ import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
 import { Plus, Trash2, Globe, Link2, Info } from 'lucide-react'
+import { useAlert } from '../components/Toast'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
 }
 
 export default function LocalDNS({ user, records: initialRecords = [], cnames: initialCnames = [] }) {
+  const { alert, confirm } = useAlert()
   const [records, setRecords] = useState(initialRecords)
   const [cnames, setCnames] = useState(initialCnames)
   const [aForm, setAForm] = useState({ domain: '', ip: '', ttl: 300, comment: '' })
@@ -59,7 +61,7 @@ export default function LocalDNS({ user, records: initialRecords = [], cnames: i
   }
 
   const removeA = async (id) => {
-    if (!confirm('Remove this local DNS record?')) return
+    if (!(await confirm('Remove this local DNS record?'))) return
     await fetch(`/api/local-dns/${id}`, { method: 'DELETE', headers: { 'X-CSRFToken': getCsrf() } })
     setRecords(list => list.filter(r => r.id !== id))
   }
@@ -105,7 +107,7 @@ export default function LocalDNS({ user, records: initialRecords = [], cnames: i
   }
 
   const removeCname = async (id) => {
-    if (!confirm('Remove this local CNAME record?')) return
+    if (!(await confirm('Remove this local CNAME record?'))) return
     await fetch(`/api/local-cname/${id}`, { method: 'DELETE', headers: { 'X-CSRFToken': getCsrf() } })
     setCnames(list => list.filter(r => r.id !== id))
   }

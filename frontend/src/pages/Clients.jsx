@@ -2,12 +2,14 @@ import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
 import { Plus, Wifi, ExternalLink, Ban, ShieldOff, Shield } from 'lucide-react'
+import { useAlert } from '../components/Toast'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
 }
 
 export default function Clients({ user, clients: initial = [] }) {
+  const { alert, confirm } = useAlert()
   const [clients, setClients] = useState(initial)
   const [form, setForm] = useState({ ip: '', name: '', group: '', comment: '' })
   const [showAdd, setShowAdd] = useState(false)
@@ -35,7 +37,7 @@ export default function Clients({ user, clients: initial = [] }) {
   }
 
   const patchClient = async (client, body, confirmMsg) => {
-    if (confirmMsg && !confirm(confirmMsg)) return
+    if (confirmMsg && !(await confirm(confirmMsg))) return
     setActingId(client.id)
     try {
       const res = await fetch(`/api/clients/${client.id}`, {
@@ -47,10 +49,10 @@ export default function Clients({ user, clients: initial = [] }) {
         const data = await res.json()
         setClients(list => list.map(c => (c.id === client.id ? { ...c, ...data } : c)))
       } else {
-        alert('Failed to update client.')
+        await alert('Failed to update client.', 'error')
       }
     } catch {
-      alert('Failed to update client.')
+      await alert('Failed to update client.', 'error')
     } finally {
       setActingId(null)
     }

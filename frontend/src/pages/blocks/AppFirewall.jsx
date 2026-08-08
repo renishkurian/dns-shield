@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
 import { Shield, Lock, Unlock, Facebook, Youtube, Play, Globe, Monitor, Smartphone, Plus, Trash2, X, Wand2 } from 'lucide-react'
+import { useAlert } from '../../components/Toast'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
@@ -22,6 +23,7 @@ export default function AppFirewall({
   controls = [], 
   groups = [] 
 }) {
+  const { alert, confirm } = useAlert()
   const [activeGroupId, setActiveGroupId] = useState(groups[0]?.id || null)
   const [ctrls, setCtrls] = useState(controls)
   const [cats, setCats] = useState(categories)
@@ -73,7 +75,7 @@ export default function AppFirewall({
 
   const deleteApp = async (e, id) => {
     e.stopPropagation() // Prevent toggling
-    if (!confirm('Permanently delete this custom app category?')) return
+    if (!(await confirm('Permanently delete this custom app category?'))) return
     
     setLoading(id)
     try {

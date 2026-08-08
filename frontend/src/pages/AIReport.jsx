@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
+import { useAlert } from '../components/Toast'
 import {
   Sparkles, CalendarRange, Loader2, ExternalLink, Filter, AlertTriangle,
   Ban, Check, ShieldBan, Trash2, History,
@@ -75,10 +76,12 @@ function CategoryBadge({ name }) {
 CategoryBadge.propTypes = { name: PropTypes.string }
 
 export default function AIReport({ user }) {
+  const { alert, confirm } = useAlert()
   const [from, setFrom] = useState(daysAgoISO(7))
   const [to, setTo] = useState(todayISO())
   const [clientIp, setClientIp] = useState('')
   const [loading, setLoading] = useState(false)
+  const [statusMsg, setStatusMsg] = useState('')
   const [error, setError] = useState('')
   const [report, setReport] = useState(null)
   const [filterCat, setFilterCat] = useState('all')
@@ -119,10 +122,10 @@ export default function AIReport({ user }) {
 
   const clearCategoryCache = async () => {
     if (!categoryCacheCount) return
-    if (!confirm(
+    if (!(await confirm(
       `Clear all ${categoryCacheCount} cached domain categories?\n`
       + 'Next report will send those domains to Claude again.',
-    )) return
+    ))) return
     setClearingCategories(true)
     try {
       const res = await fetch('/api/ai/domain-categories', {
@@ -131,7 +134,7 @@ export default function AIReport({ user }) {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        alert(data.error || 'Failed to clear category cache')
+        await alert(data.error || 'Failed to clear category cache', 'error')
         return
       }
       setCategoryCacheCount(0)
@@ -171,13 +174,13 @@ export default function AIReport({ user }) {
   }
 
   const clearSaved = async (id) => {
-    if (!confirm('Remove this saved report from the cache?')) return
+    if (!(await confirm('Remove this saved report from the cache?'))) return
     const res = await fetch(`/api/ai/report/cache/${id}`, {
       method: 'DELETE',
       headers: { 'X-CSRFToken': getCsrf() },
     })
     if (!res.ok && res.status !== 204) {
-      alert('Failed to clear report')
+      await alert('Failed to clear report', 'error')
       return
     }
     setSaved(list => list.filter(r => r.id !== id))
@@ -189,13 +192,13 @@ export default function AIReport({ user }) {
 
   const clearAllSaved = async () => {
     if (!saved.length) return
-    if (!confirm(`Clear all ${saved.length} saved AI reports?`)) return
+    if (!(await confirm(`Clear all ${saved.length} saved AI reports?`))) return
     const res = await fetch('/api/ai/report/cache', {
       method: 'DELETE',
       headers: { 'X-CSRFToken': getCsrf() },
     })
     if (!res.ok) {
-      alert('Failed to clear reports')
+      await alert('Failed to clear reports', 'error')
       return
     }
     setSaved([])
@@ -206,6 +209,7 @@ export default function AIReport({ user }) {
   const runReport = async (e) => {
     e?.preventDefault()
     setLoading(true)
+    setStatusMsg('Starting…')
     setError('')
     setReport(null)
     setSelectedId(null)
@@ -219,9 +223,68 @@ export default function AIReport({ user }) {
         body: JSON.stringify({
           from,
           to,
+          stream: true,
           ...(clientIp.trim() ? { client_ip: clientIp.trim() } : {}),
         }),
       })
+
+      // Streaming NDJSON progress (status / result / error)
+      const ctype = res.headers.get('content-type') || ''
+      if (ctype.includes('application/x-ndjson') && res.body) {
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let finalData = null
+        let streamError = null
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed) continue
+            let evt
+            try {
+              evt = JSON.parse(trimmed)
+            } catch {
+              continue
+            }
+            if (evt.type === 'status' && evt.message) {
+              setStatusMsg(evt.message)
+            } else if (evt.type === 'result') {
+              finalData = evt.data || {}
+            } else if (evt.type === 'error') {
+              streamError = evt.error || 'Report failed'
+              if (evt.data?.items) finalData = evt.data
+            }
+          }
+        }
+
+        if (streamError && !finalData?.items?.length) {
+          setError(streamError)
+          return
+        }
+        if (streamError && finalData?.items?.length) {
+          setError(streamError)
+        }
+        if (!finalData) {
+          setError(streamError || 'Report failed — empty response')
+          return
+        }
+        showReport(finalData)
+        if (typeof finalData.category_cache_size === 'number') {
+          setCategoryCacheCount(finalData.category_cache_size)
+        } else {
+          await refreshCategoryCache()
+        }
+        await refreshSaved()
+        return
+      }
+
+      // Fallback: non-streaming JSON
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         setError(data.error || `Report failed (HTTP ${res.status})`)
@@ -239,6 +302,7 @@ export default function AIReport({ user }) {
       setError(err?.message || 'Report failed')
     } finally {
       setLoading(false)
+      setStatusMsg('')
     }
   }
 
@@ -283,9 +347,7 @@ export default function AIReport({ user }) {
   const blockVisible = async () => {
     const pending = filteredItems.filter(i => blocked[i.domain] !== 'ok')
     if (!pending.length) return
-    if (!confirm(`Block ${pending.length} domain(s) shown in this list?\n\nThey will be added to Domain Block Rules as wildcard rules.`)) {
-      return
-    }
+    if (!(await confirm(`Block ${pending.length} domain(s) shown in this list?\n\nThey will be added to Domain Block Rules as wildcard rules.`))) return
     for (const item of pending) {
       // eslint-disable-next-line no-await-in-loop
       await blockDomain(item)
@@ -364,11 +426,11 @@ export default function AIReport({ user }) {
                   onChange={e => setClientIp(e.target.value)}
                 />
               </div>
-              <button type="submit" className="btn-primary px-5" disabled={loading || !from || !to}>
+              <button type="submit" className="btn-primary px-5 max-w-[220px]" disabled={loading || !from || !to}>
                 {loading ? (
                   <>
-                    <Loader2 size={14} className="animate-spin" />
-                    Analyzing…
+                    <Loader2 size={14} className="animate-spin shrink-0" />
+                    <span className="truncate">{statusMsg || 'Working…'}</span>
                   </>
                 ) : (
                   <>
@@ -411,9 +473,10 @@ export default function AIReport({ user }) {
               </button>
             </div>
             {loading && (
-              <p className="text-xs text-slate-500 mt-4">
-                Using cached categories where possible; only new domains go to AI.
-              </p>
+              <div className="mt-4 flex items-start gap-2 text-xs text-brand-300/90">
+                <Loader2 size={14} className="animate-spin shrink-0 mt-0.5" />
+                <p className="leading-relaxed">{statusMsg || 'Working…'}</p>
+              </div>
             )}
           </form>
 

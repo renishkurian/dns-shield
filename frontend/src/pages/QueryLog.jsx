@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
-import { 
+import { useAlert } from '../components/Toast'
+import {
   Play, Pause, Download, Shield, Activity, 
   CheckCircle, Search, Trash, 
   Lock, Unlock, Database, ArrowRight,
@@ -209,6 +210,7 @@ function getQueryParam(name) {
 }
 
 export default function QueryLog({ user, initialQueries = [] }) {
+  const { alert, confirm } = useAlert()
   const initialClient = getQueryParam('client')
   const initialDomain = getQueryParam('domain')
   const initialStatus = getQueryParam('status')
@@ -242,7 +244,7 @@ export default function QueryLog({ user, initialQueries = [] }) {
     setActing(null)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      alert(data.domain ? data.domain[0] : 'Failed to block domain.')
+      await alert(data.domain ? data.domain[0] : 'Failed to block domain.', 'error')
     }
   }
 
@@ -256,7 +258,7 @@ export default function QueryLog({ user, initialQueries = [] }) {
     setActing(null)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      alert(data.domain ? data.domain[0] : 'Failed to allow domain.')
+      await alert(data.domain ? data.domain[0] : 'Failed to allow domain.', 'error')
     }
   }
 
@@ -349,7 +351,7 @@ export default function QueryLog({ user, initialQueries = [] }) {
   }
 
   const clearLogs = async () => {
-    if (!confirm('Permanently clear ALL query logs?')) return
+    if (!(await confirm('Permanently clear ALL query logs?'))) return
     setActing({ domain: 'Clearing...', type: 'clear' })
     const res = await fetch('/api/system/clear-queries', {
       method: 'POST',

@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
 import { Plus, Trash2, Edit2, UserX, Key, Shield, Eye } from 'lucide-react'
+import { useAlert } from '../components/Toast'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
@@ -115,6 +116,7 @@ UserModal.propTypes = {
 }
 
 export default function Users({ user: currentUser, users: initial = [] }) {
+  const { alert, confirm } = useAlert()
   const [users, setUsers] = useState(initial)
   const [editUser, setEditUser] = useState(null)
   const [showAdd, setShowAdd] = useState(false)
@@ -128,7 +130,7 @@ export default function Users({ user: currentUser, users: initial = [] }) {
   }
 
   const deleteUser = async (id) => {
-    if (!confirm('Delete user permanently?')) return
+    if (!(await confirm('Delete user permanently?'))) return
     await fetch(`/api/users/${id}`, { method: 'DELETE', headers: { 'X-CSRFToken': getCsrf() } })
     setUsers(u => u.filter(x => x.id !== id))
   }

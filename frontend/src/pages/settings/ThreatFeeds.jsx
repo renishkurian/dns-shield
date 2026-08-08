@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
-import { 
+import { useAlert } from '../../components/Toast'
+import {
   ShieldAlert, Plus, Trash2, RefreshCw, 
   ExternalLink, CheckCircle, AlertTriangle, 
   Info, Globe, Lock, ShieldCheck, Zap, Clock
@@ -19,6 +20,7 @@ const PRESET_FEEDS = [
 ]
 
 export default function ThreatFeeds({ user, feeds: initialFeeds = [] }) {
+  const { alert, confirm } = useAlert()
   const [feeds, setFeeds] = useState(initialFeeds)
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ name: '', url: '' })
@@ -46,7 +48,7 @@ export default function ThreatFeeds({ user, feeds: initialFeeds = [] }) {
   }
 
   const handleDelete = async (id) => {
-    if (!confirm('Remove this threat feed?')) return
+    if (!(await confirm('Remove this threat feed?'))) return
     const res = await fetch(`/api/lists/${id}`, {
       method: 'DELETE',
       headers: { 'X-CSRFToken': getCsrf() }

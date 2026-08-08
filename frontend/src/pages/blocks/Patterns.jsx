@@ -2,12 +2,14 @@ import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
 import { Plus, Trash2, ToggleLeft, ToggleRight, Zap } from 'lucide-react'
+import { useAlert } from '../../components/Toast'
 
 function getCsrf() {
   return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || ''
 }
 
 export default function BlocksPatterns({ user, patterns: initial = [] }) {
+  const { alert, confirm } = useAlert()
   const [patterns, setPatterns] = useState(initial)
   const [showAdd, setShowAdd] = useState(false)
   const [testInput, setTestInput] = useState('')
@@ -46,7 +48,7 @@ export default function BlocksPatterns({ user, patterns: initial = [] }) {
   }
 
   const remove = async (id) => {
-    if (!confirm('Delete pattern?')) return
+    if (!(await confirm('Delete pattern?'))) return
     await fetch(`/api/blocks/patterns/${id}`, { method: 'DELETE', headers: { 'X-CSRFToken': getCsrf() } })
     setPatterns(p => p.filter(x => x.id !== id))
   }

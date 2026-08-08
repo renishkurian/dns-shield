@@ -1240,28 +1240,97 @@ class AIReportView(APIView):
     )
 
     def post(self, request):
+        stream = bool(request.data.get('stream'))
+        if not stream:
+            status_code, payload = self._execute_report(request)
+            return Response(payload, status=status_code)
+
+        import queue
+        import threading
+        from dns.ai_progress import set_progress_callback, clear_progress_callback
+
+        # Snapshot request data on this thread (request is not thread-safe).
+        data = {
+            'from': (request.data.get('from') or request.data.get('start') or ''),
+            'to': (request.data.get('to') or request.data.get('end') or ''),
+            'client_ip': (request.data.get('client_ip') or request.data.get('client') or ''),
+        }
+        user = request.user
+
+        q = queue.Queue()
+
+        def emit(msg):
+            q.put({'type': 'status', 'message': str(msg)})
+
+        def worker():
+            from django.db import close_old_connections
+            close_old_connections()
+            try:
+                set_progress_callback(emit)
+                emit('Starting AI report…')
+                # Fake request-like object for _execute_report
+                class _Req:
+                    pass
+                req = _Req()
+                req.data = data
+                req.user = user
+                status_code, payload = self._execute_report(req, on_status=emit)
+                if status_code >= 400 and payload.get('error') and not payload.get('items'):
+                    q.put({'type': 'error', 'error': payload.get('error'), 'data': payload})
+                else:
+                    q.put({'type': 'result', 'data': payload})
+            except Exception as exc:
+                q.put({'type': 'error', 'error': str(exc)})
+            finally:
+                clear_progress_callback()
+                close_old_connections()
+                q.put(None)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        def event_stream():
+            while True:
+                item = q.get()
+                if item is None:
+                    break
+                yield json.dumps(item) + '\n'
+
+        response = StreamingHttpResponse(event_stream(), content_type='application/x-ndjson')
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        return response
+
+    def _execute_report(self, request, on_status=None):
         from dns.domain_trust import dedupe_domains, normalize_domain
         from dns.ai_service import ask_ai
         from django.db.models import F
 
+        def emit(msg):
+            if on_status:
+                try:
+                    on_status(str(msg))
+                except Exception:
+                    pass
+
+        emit('Fetching DNS query log…')
         start_raw = (request.data.get('from') or request.data.get('start') or '').strip()
         end_raw = (request.data.get('to') or request.data.get('end') or '').strip()
         client_ip = (request.data.get('client_ip') or request.data.get('client') or '').strip()
 
         if not start_raw or not end_raw:
-            return Response({'error': 'from and to date range are required (YYYY-MM-DD or ISO datetime).'}, status=400)
+            return 400, {'error': 'from and to date range are required (YYYY-MM-DD or ISO datetime).'}
 
         start_dt = self._parse_bound(start_raw, end_of_day=False)
         end_dt = self._parse_bound(end_raw, end_of_day=True)
         if not start_dt or not end_dt:
-            return Response({'error': 'Invalid date range. Use YYYY-MM-DD or ISO datetime.'}, status=400)
+            return 400, {'error': 'Invalid date range. Use YYYY-MM-DD or ISO datetime.'}
         if start_dt > end_dt:
-            return Response({'error': 'from must be before to.'}, status=400)
+            return 400, {'error': 'from must be before to.'}
         now = dj_timezone.now()
         if end_dt > now:
             end_dt = now
         if start_dt > now:
-            return Response({'error': 'from cannot be in the future.'}, status=400)
+            return 400, {'error': 'from cannot be in the future.'}
 
         qs = QueryLog.objects.filter(timestamp__gte=start_dt, timestamp__lte=end_dt)
         if client_ip:
@@ -1293,7 +1362,7 @@ class AIReportView(APIView):
         domains = dedupe_domains(sorted(hit_map.keys(), key=lambda d: (-hit_map[d], d)))
         total_unique = len(domains)
         if not domains:
-            return Response({
+            return 200, {
                 'summary': 'No DNS queries found in this date range.',
                 'from': start_dt.isoformat(),
                 'to': end_dt.isoformat(),
@@ -1301,9 +1370,10 @@ class AIReportView(APIView):
                 'domains_analyzed': 0,
                 'categories': [],
                 'items': [],
-            })
+            }
 
         domains = domains[: self.MAX_DOMAINS]
+        emit(f'Found {total_unique} unique domains (analyzing top {len(domains)})…')
 
         # Resolve friendly client names for IPs that appear in this report
         all_visitor_ips = set()
@@ -1333,6 +1403,7 @@ class AIReportView(APIView):
         summary_bits = []
         errors = []
 
+        emit('Checking category cache…')
         # Reuse cached categories — only send unknowns to Claude (saves tokens).
         cached_rows = {
             row.domain: row
@@ -1354,6 +1425,7 @@ class AIReportView(APIView):
             else:
                 unknown.append(d)
 
+        emit(f'Cache hits: {len(from_cache)} · need AI: {len(unknown)}')
         if from_cache:
             DomainCategory.objects.filter(domain__in=[i['domain'] for i in from_cache]).update(
                 hit_count=F('hit_count') + 1
@@ -1365,9 +1437,11 @@ class AIReportView(APIView):
             batches = list(range(0, len(unknown), self.BATCH_SIZE))
             for bi, i in enumerate(batches):
                 if bi > 0:
+                    emit(f'Pausing {self.BATCH_PAUSE_SEC}s before next AI batch…')
                     time.sleep(self.BATCH_PAUSE_SEC)
                 batch = unknown[i:i + self.BATCH_SIZE]
                 try:
+                    emit(f'Classifying with AI — batch {bi + 1}/{len(batches)} ({len(batch)} domains)…')
                     batch_items, batch_summary = self._categorize_batch(ask_ai, batch, request.user)
                     for raw_item in batch_items:
                         d = normalize_domain(raw_item.get('domain') or '')
@@ -1400,13 +1474,18 @@ class AIReportView(APIView):
                         ai_new += 1
                     if batch_summary:
                         summary_bits.append(batch_summary)
+                    emit(f'Batch {bi + 1}/{len(batches)} done — {ai_new} newly classified')
                 except Exception as e:
                     err = str(e).strip()
                     if err and err not in errors:
                         errors.append(err)
+                    emit(f'AI batch failed: {err[:120]}')
                     if 'rate limited' in err.lower() or 'All Claude browser accounts failed' in err:
                         break
+        elif from_cache:
+            emit('All domains served from category cache — skipping Claude')
 
+        emit('Building report…')
         # Merge hit counts / last_seen / clients; fill gaps AI skipped
         by_domain = {}
         for item in items:
@@ -1475,12 +1554,13 @@ class AIReportView(APIView):
             'items': items,
         }
         if errors and not items:
-            return Response({'error': errors[0], **payload}, status=500)
+            return 500, {'error': errors[0], **payload}
         if errors:
             payload['warnings'] = errors
 
         # Persist for later reopen / clear from the AI Report page
         if items:
+            emit('Saving report…')
             cached = AIReportCache.objects.create(
                 range_from=start_dt,
                 range_to=end_dt,
@@ -1489,12 +1569,14 @@ class AIReportView(APIView):
                 domains_found=total_unique,
                 domains_analyzed=len(items),
                 payload=payload,
-                created_by=request.user if request.user.is_authenticated else None,
+                created_by=request.user if getattr(request.user, 'is_authenticated', False) else None,
             )
             payload['id'] = cached.id
             payload['cached'] = True
             payload['created_at'] = cached.created_at.isoformat()
-        return Response(payload)
+        emit('Done')
+        return 200, payload
+
 
     @staticmethod
     def _parse_bound(value: str, *, end_of_day: bool):

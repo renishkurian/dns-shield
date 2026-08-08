@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
+import { useAlert } from '../../components/Toast'
 import {
   Bell, ShieldAlert, Cpu, Download, Search,
   Clock, Trash2, Database, Wifi, X, Sparkles
@@ -98,6 +99,7 @@ function AuditDrawer({ log, onClose }) {
 AuditDrawer.propTypes = { log: PropTypes.object, onClose: PropTypes.func }
 
 export default function SystemLog({ user, events: initialEvents = [] }) {
+  const { alert, confirm } = useAlert()
   const [events] = useState(initialEvents)
   const [activeTab, setActiveTab] = useState('system')
   const [aiLogs, setAiLogs] = useState([])
@@ -121,7 +123,7 @@ export default function SystemLog({ user, events: initialEvents = [] }) {
 
   const handleClear = async () => {
     const target = activeTab === 'system' ? 'system events' : 'AI audit logs'
-    if (!confirm(`Clear all ${target}?`)) return
+    if (!(await confirm(`Clear all ${target}?`))) return
 
     if (activeTab === 'ai') {
       await fetch('/api/ai/usage', { method: 'DELETE', headers: { 'X-CSRFToken': getCsrf() } })

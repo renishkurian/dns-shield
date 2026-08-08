@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
-import { 
+import { useAlert } from '../../components/Toast'
+import {
   Bell, Mail, Slack, Send, Globe, Plus, Trash2, 
   CheckCircle, AlertCircle, Save, X, Info, ShieldAlert, Wifi, Database
 } from 'lucide-react'
@@ -25,6 +26,7 @@ const CHANNELS = [
 ]
 
 export default function Alerts({ user, configs: initialArr = [] }) {
+  const { alert, confirm } = useAlert()
   const [configs, setConfigs] = useState(initialArr)
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({
@@ -46,7 +48,7 @@ export default function Alerts({ user, configs: initialArr = [] }) {
   }
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this alert config?')) return
+    if (!(await confirm('Delete this alert config?'))) return
     const res = await fetch(`/api/alerts/configs/${id}`, {
       method: 'DELETE',
       headers: { 'X-CSRFToken': getCsrf() }

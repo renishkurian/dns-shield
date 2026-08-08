@@ -136,6 +136,8 @@ def _ask_via_claude_browser(system_prompt: str, user_prompt: str, model: str, fe
         compose_prompt,
     )
 
+    from dns.ai_progress import report_progress
+
     accounts = ordered_claude_accounts()
     if not accounts:
         raise ValueError(
@@ -147,6 +149,7 @@ def _ask_via_claude_browser(system_prompt: str, user_prompt: str, model: str, fe
     prompt = compose_prompt(system_prompt, user_prompt)
     errors = []
     multi = len(accounts) > 1
+    report_progress(f'Starting Claude ({feature})…')
 
     # If every account is cooling down, wait for the earliest one (once).
     now = time.time()
@@ -158,6 +161,7 @@ def _ask_via_claude_browser(system_prompt: str, user_prompt: str, model: str, fe
         wait = min(until - now + 2, _MAX_RATE_LIMIT_WAIT)
         name = (earliest.get('name') or 'account').strip()
         print(f'Claude browser: all accounts cooling down — waiting {int(wait)}s for "{name}"')
+        report_progress(f'All accounts cooling down — waiting {int(wait)}s for “{name}”…')
         time.sleep(max(wait, 0))
         _clear_account_cooldown(earliest)
 
@@ -172,10 +176,13 @@ def _ask_via_claude_browser(system_prompt: str, user_prompt: str, model: str, fe
             msg = f'{name}: still rate-limited (cooldown {left}s left)'
             errors.append(msg)
             print(f'Claude browser skip — {msg}')
+            report_progress(f'Skipping “{name}” (rate-limit cooldown {left}s)')
             continue
 
         try:
+            report_progress(f'Trying account “{name}”…')
             # MarketMind: create once (internal 429 retries), then ask once (5 completion retries).
+            report_progress(f'Creating conversation ({name})…')
             conv_id = create_conversation(
                 session_key,
                 org_id,
@@ -184,6 +191,7 @@ def _ask_via_claude_browser(system_prompt: str, user_prompt: str, model: str, fe
                 system_prompt='',
                 max_retries=3,
             )
+            report_progress(f'Waiting for Claude reply ({name})…')
             response_text, tokens_in, tokens_out = ask_claude(
                 session_key,
                 org_id,
@@ -200,6 +208,7 @@ def _ask_via_claude_browser(system_prompt: str, user_prompt: str, model: str, fe
             label = f'{used_model}@{name}' if multi else used_model
             if errors:
                 print(f'Claude browser: account "{name}" succeeded after prior failures')
+            report_progress(f'Claude reply OK via “{name}”')
             return response_text, tokens_in, tokens_out, label
 
         except ClaudeRateLimitError as e:
@@ -211,18 +220,21 @@ def _ask_via_claude_browser(system_prompt: str, user_prompt: str, model: str, fe
                 f'Claude browser rate limited — {msg} '
                 f'(cooldown {int(wait)}s, trying next account if any)'
             )
+            report_progress(f'Rate limited on “{name}” — trying next account…')
             continue
 
         except (ClaudeAuthError, ClaudeOrgError) as e:
             msg = f'{name}: {e}'
             errors.append(msg)
             print(f'Claude browser account failed — {msg}')
+            report_progress(f'Auth failed on “{name}” — trying next…')
             continue
 
         except Exception as e:
             msg = f'{name}: {e}'
             errors.append(msg)
             print(f'Claude browser account failed — {msg}')
+            report_progress(f'Account “{name}” failed — trying next…')
             continue
 
     raise ValueError(
