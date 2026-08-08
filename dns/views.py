@@ -1764,18 +1764,61 @@ IPTABLES_RULES = {
 }
 
 
+def _iptables_check_cmd(rule_argv):
+    """Convert an -A append rule into an -C check rule."""
+    cmd = list(rule_argv)
+    try:
+        idx = cmd.index('-A')
+        cmd[idx] = '-C'
+    except ValueError:
+        pass
+    return cmd
+
+
+def _iptables_active_map():
+    """Return {rule_id: bool} for each managed rule currently present in the kernel."""
+    active = {}
+    for key, rule in IPTABLES_RULES.items():
+        try:
+            res = subprocess.run(
+                ['sudo'] + _iptables_check_cmd(rule),
+                capture_output=True, text=True, timeout=5,
+            )
+            active[key] = res.returncode == 0
+        except Exception:
+            active[key] = False
+    return active
+
+
 class NetworkIPTablesView(APIView):
     permission_classes = [IsAdminRole]
 
     def get(self, request):
         try:
-            result = subprocess.run(
-                ['iptables', '-L', '-n', '-v'],
-                capture_output=True, text=True, timeout=5
+            # Listing requires root on nf_tables backends
+            filter_tbl = subprocess.run(
+                ['sudo', 'iptables', '-L', '-n', '-v'],
+                capture_output=True, text=True, timeout=5,
             )
-            return Response({'rules': result.stdout, 'error': result.stderr})
+            nat_tbl = subprocess.run(
+                ['sudo', 'iptables', '-t', 'nat', '-L', '-n', '-v'],
+                capture_output=True, text=True, timeout=5,
+            )
+            parts = []
+            if filter_tbl.stdout:
+                parts.append('=== filter ===\n' + filter_tbl.stdout.rstrip())
+            if nat_tbl.stdout:
+                parts.append('=== nat ===\n' + nat_tbl.stdout.rstrip())
+            err = (filter_tbl.stderr or nat_tbl.stderr or '').strip()
+            ok = filter_tbl.returncode == 0 and nat_tbl.returncode == 0
+            return Response({
+                'ok': ok,
+                'rules': '\n\n'.join(parts) if parts else '',
+                'error': err if not ok else '',
+                'active': _iptables_active_map(),
+            })
         except Exception as exc:
-            return Response({'error': str(exc)}, status=500)
+            return Response({'ok': False, 'error': str(exc), 'active': {}}, status=500)
 
 
 class NetworkIPTablesApplyView(APIView):
@@ -1787,6 +1830,19 @@ class NetworkIPTablesApplyView(APIView):
         if not rule:
             return Response({'error': 'Unknown rule'}, status=400)
         try:
+            # Skip duplicate inserts when the rule is already present
+            check = subprocess.run(
+                ['sudo'] + _iptables_check_cmd(rule),
+                capture_output=True, text=True, timeout=5,
+            )
+            if check.returncode == 0:
+                return Response({
+                    'ok': True,
+                    'output': 'Rule already active.',
+                    'error': '',
+                    'active': _iptables_active_map(),
+                })
+
             result = subprocess.run(
                 ['sudo'] + rule,
                 capture_output=True, text=True, timeout=10
@@ -1797,7 +1853,12 @@ class NetworkIPTablesApplyView(APIView):
             error = (result.stderr or '').strip()
             if ok and not output:
                 output = f'Applied: {" ".join(rule)}'
-            return Response({'ok': ok, 'output': output, 'error': error})
+            return Response({
+                'ok': ok,
+                'output': output,
+                'error': error,
+                'active': _iptables_active_map(),
+            })
         except Exception as exc:
             return Response({'ok': False, 'error': str(exc)}, status=500)
 

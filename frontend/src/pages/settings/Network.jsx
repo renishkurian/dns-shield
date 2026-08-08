@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
 import TorSettings from '../../components/TorSettings'
@@ -37,18 +37,33 @@ const RULES = [
 
 export default function NetworkSettings({ user }) {
   const [results, setResults] = useState({})
+  const [active, setActive] = useState({})
   const [iptablesOutput, setIptablesOutput] = useState('')
+  const [loadingRules, setLoadingRules] = useState(false)
   const isAdmin = user?.role === 'admin'
 
-  const fetchRules = async () => {
+  const fetchRules = async ({ showDump = true } = {}) => {
+    if (showDump) setLoadingRules(true)
     try {
       const res = await fetch('/api/network/iptables')
       const data = await res.json()
-      setIptablesOutput(data.rules || data.error || 'No output')
+      if (data.active && typeof data.active === 'object') {
+        setActive(data.active)
+      }
+      if (showDump) {
+        const text = (data.rules || data.error || '').trim()
+        setIptablesOutput(text || 'No iptables output.')
+      }
     } catch (e) {
-      setIptablesOutput(e.message || 'Failed to fetch rules')
+      if (showDump) setIptablesOutput(e.message || 'Failed to fetch rules')
+    } finally {
+      if (showDump) setLoadingRules(false)
     }
   }
+
+  useEffect(() => {
+    if (isAdmin) fetchRules({ showDump: false })
+  }, [isAdmin])
 
   const apply = async (ruleId) => {
     setResults(r => ({ ...r, [ruleId]: { loading: true } }))
@@ -61,6 +76,11 @@ export default function NetworkSettings({ user }) {
       const data = await res.json().catch(() => ({}))
       const ok = res.ok && !!data.ok
       const detail = (data.output || data.error || '').trim()
+      if (data.active && typeof data.active === 'object') {
+        setActive(data.active)
+      } else if (ok) {
+        setActive(a => ({ ...a, [ruleId]: true }))
+      }
       setResults(r => ({
         ...r,
         [ruleId]: {
@@ -114,13 +134,19 @@ export default function NetworkSettings({ user }) {
       <div className="space-y-3 mb-6">
         {RULES.map(rule => {
           const rs = results[rule.id]
+          const isActive = !!active[rule.id]
           return (
             <div key={rule.id} className={`card ${rule.danger ? 'border-yellow-500/20' : ''}`}>
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <rule.icon size={16} className={rule.danger ? 'text-yellow-400' : 'text-brand-400'} />
                     <span className="font-semibold text-white text-sm">{rule.label}</span>
+                    {isActive && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-green-500/10 text-green-400 border border-green-500/20">
+                        <CheckCircle size={10} /> Active
+                      </span>
+                    )}
                     {rule.danger && (
                       <span className="badge-yellow text-xs"><AlertTriangle size={10} /> Caution</span>
                     )}
@@ -139,7 +165,7 @@ export default function NetworkSettings({ user }) {
                 {isAdmin && (
                   <button onClick={() => apply(rule.id)} disabled={rs?.loading}
                     className="btn-primary shrink-0 text-xs">
-                    {rs?.loading ? 'Applying…' : 'Apply'}
+                    {rs?.loading ? 'Applying…' : isActive ? 'Re-apply' : 'Apply'}
                   </button>
                 )}
               </div>
@@ -150,8 +176,8 @@ export default function NetworkSettings({ user }) {
 
       {/* Actions */}
       <div className="flex gap-3 mb-4">
-        <button onClick={fetchRules} className="btn-ghost text-xs">
-          <Terminal size={14} /> Show current rules
+        <button onClick={() => fetchRules({ showDump: true })} disabled={loadingRules} className="btn-ghost text-xs">
+          <Terminal size={14} /> {loadingRules ? 'Loading…' : 'Show current rules'}
         </button>
         {isAdmin && (
           <button onClick={saveRules} disabled={results._save?.loading} className="btn-primary text-xs">
