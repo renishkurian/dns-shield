@@ -220,7 +220,7 @@ class ClientSerializer(serializers.ModelSerializer):
         model = Client
         fields = ['id', 'ip', 'mac', 'name', 'hostname', 'user', 'group', 
                   'vendor', 'os_hint', 'open_ports', 'last_seen', 'nickname', 'device_type', 'icon',
-                  'comment', 'is_blocked', 'shield_bypass', 'is_active']
+                  'comment', 'is_blocked', 'shield_bypass', 'route_via_tor', 'is_active']
         read_only_fields = ['last_seen']
 
     def get_is_active(self, obj):

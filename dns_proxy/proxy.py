@@ -26,30 +26,31 @@ class DNSShieldResolver(BaseResolver):
         domain = str(request.q.qname).rstrip('.')
         qtype = dnslib.QTYPE[request.q.qtype]
         client_ip = handler.client_address[0]
+        up_host, up_port = _upstream_for_client(client_ip, self.upstream_host, self.upstream_port)
 
         # 0. Check Shield Status (global)
         from dns.shield import is_shield_active
         if not is_shield_active():
-            reply = forwarder.forward(request, self.upstream_host, self.upstream_port)
+            reply = forwarder.forward(request, up_host, up_port)
             elapsed = (time.monotonic() - start) * 1000
             resolved_ip = _extract_ip(reply)
             dns_logger.log_query(domain, client_ip, 'allowed', qtype,
                                  response_time_ms=elapsed, resolved_ip=resolved_ip,
-                                 resolved_by=f"{self.upstream_host} (Shield Off)", ttl=_get_min_ttl(reply))
+                                 resolved_by=f"{up_host} (Shield Off)", ttl=_get_min_ttl(reply))
             _broadcast(domain, client_ip, 'allowed', qtype, '', elapsed,
-                       resolved_ip=resolved_ip, resolved_by=f"{self.upstream_host} (Shield Off)")
+                       resolved_ip=resolved_ip, resolved_by=f"{up_host} (Shield Off)")
             return reply
 
         # 0.04 Per-client shield bypass — forward everything for this IP
         if _is_client_bypassed(client_ip):
-            reply = forwarder.forward(request, self.upstream_host, self.upstream_port)
+            reply = forwarder.forward(request, up_host, up_port)
             elapsed = (time.monotonic() - start) * 1000
             resolved_ip = _extract_ip(reply)
             dns_logger.log_query(domain, client_ip, 'allowed', qtype,
                                  response_time_ms=elapsed, resolved_ip=resolved_ip,
-                                 resolved_by=f"{self.upstream_host} (Client Bypass)", ttl=_get_min_ttl(reply))
+                                 resolved_by=f"{up_host} (Client Bypass)", ttl=_get_min_ttl(reply))
             _broadcast(domain, client_ip, 'allowed', qtype, 'Client shield bypass', elapsed,
-                       resolved_ip=resolved_ip, resolved_by=f"{self.upstream_host} (Client Bypass)")
+                       resolved_ip=resolved_ip, resolved_by=f"{up_host} (Client Bypass)")
             return reply
 
         # 0.05 Full client ban — block all DNS for this IP
@@ -101,16 +102,16 @@ class DNSShieldResolver(BaseResolver):
 
         # 1. Allowlist — always forward
         if self.matcher.is_allowed(domain, group_id=group_id):
-            reply = forwarder.forward(request, self.upstream_host, self.upstream_port)
+            reply = forwarder.forward(request, up_host, up_port)
             elapsed = (time.monotonic() - start) * 1000
             resolved_ip = _extract_ip(reply)
             dnssec = _get_dnssec_status(reply)
             ttl = _get_min_ttl(reply)
             dns_logger.log_query(domain, client_ip, 'allowed', qtype,
                                  response_time_ms=elapsed, resolved_ip=resolved_ip,
-                                 resolved_by=self.upstream_host, dnssec_status=dnssec, ttl=ttl)
-            _broadcast(domain, client_ip, 'allowed', qtype, '', elapsed, 
-                       resolved_ip=resolved_ip, resolved_by=self.upstream_host, 
+                                 resolved_by=up_host, dnssec_status=dnssec, ttl=ttl)
+            _broadcast(domain, client_ip, 'allowed', qtype, '', elapsed,
+                       resolved_ip=resolved_ip, resolved_by=up_host,
                        dnssec_status=dnssec, ttl=ttl)
             dns_cache.put(request, reply)
             return reply
@@ -160,7 +161,7 @@ class DNSShieldResolver(BaseResolver):
             return nxdomain()
 
         # 5. Forward to upstream
-        reply = forwarder.forward(request, self.upstream_host, self.upstream_port)
+        reply = forwarder.forward(request, up_host, up_port)
         elapsed = (time.monotonic() - start) * 1000
         status = 'nxdomain' if reply.header.rcode == dnslib.RCODE.NXDOMAIN else 'allowed'
         resolved_ip = _extract_ip(reply)
@@ -168,15 +169,17 @@ class DNSShieldResolver(BaseResolver):
         ttl = _get_min_ttl(reply)
         dns_logger.log_query(domain, client_ip, status, qtype,
                              response_time_ms=elapsed, resolved_ip=resolved_ip,
-                             resolved_by=self.upstream_host, dnssec_status=dnssec, ttl=ttl)
-        _broadcast(domain, client_ip, status, qtype, '', elapsed, 
-                   resolved_ip=resolved_ip, resolved_by=self.upstream_host, 
+                             resolved_by=up_host, dnssec_status=dnssec, ttl=ttl)
+        _broadcast(domain, client_ip, status, qtype, '', elapsed,
+                   resolved_ip=resolved_ip, resolved_by=up_host,
                    dnssec_status=dnssec, ttl=ttl)
         if status == 'allowed':
             dns_cache.put(request, reply)
         return reply
 
 
+TOR_DNS_HOST = '127.0.0.1'
+TOR_DNS_PORT = 9053
 
 _blocked_clients_cache = {
     'ips': set(),
@@ -184,6 +187,11 @@ _blocked_clients_cache = {
 }
 
 _bypass_clients_cache = {
+    'ips': set(),
+    'last_check': 0,
+}
+
+_tor_clients_cache = {
     'ips': set(),
     'last_check': 0,
 }
@@ -217,6 +225,28 @@ def _is_client_bypassed(client_ip: str) -> bool:
             logger.error(f"Failed to refresh bypass clients: {exc}")
         _bypass_clients_cache['last_check'] = now
     return client_ip in _bypass_clients_cache['ips']
+
+
+def _is_client_tor_routed(client_ip: str) -> bool:
+    """Return True if this client IP should resolve DNS via Tor. Refreshes every 5s."""
+    now = time.time()
+    if now - _tor_clients_cache['last_check'] >= 5:
+        try:
+            from dns.models import Client
+            _tor_clients_cache['ips'] = set(
+                Client.objects.filter(route_via_tor=True).values_list('ip', flat=True)
+            )
+        except Exception as exc:
+            logger.error(f"Failed to refresh Tor-routed clients: {exc}")
+        _tor_clients_cache['last_check'] = now
+    return client_ip in _tor_clients_cache['ips']
+
+
+def _upstream_for_client(client_ip: str, host: str, port: int) -> tuple[str, int]:
+    """Return Tor DNSPort when client is flagged; otherwise the normal upstream."""
+    if _is_client_tor_routed(client_ip):
+        return TOR_DNS_HOST, TOR_DNS_PORT
+    return host, port
 
 
 def _resolve_identity(client_ip: str) -> int | None:

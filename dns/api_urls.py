@@ -63,6 +63,8 @@ urlpatterns = [
     path('network/iptables', views.NetworkIPTablesView.as_view()),
     path('network/iptables/apply', views.NetworkIPTablesApplyView.as_view()),
     path('network/iptables/save', views.NetworkIPTablesSaveView.as_view()),
+    path('network/tor/status', views.TorStatusView.as_view()),
+    path('network/tor/toggle', views.TorToggleView.as_view()),
     path('network/scan', views.NetworkScanView.as_view()),
 
     # Users (admin only)

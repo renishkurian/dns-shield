@@ -77,6 +77,11 @@ class Client(models.Model):
         db_index=True,
         help_text='When true, DNS Shield filtering is fully disabled for this client IP',
     )
+    route_via_tor = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text='When true, DNS queries for this client are resolved via Tor (127.0.0.1:9053) instead of Unbound',
+    )
 
     def __str__(self):
         return self.name or self.hostname or self.ip

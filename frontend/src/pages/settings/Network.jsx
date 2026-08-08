@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../../components/Layout'
+import TorSettings from '../../components/TorSettings'
 import { Terminal, Network, Shield, Save, AlertTriangle, CheckCircle } from 'lucide-react'
 
 function getCsrf() {
@@ -67,6 +68,8 @@ export default function NetworkSettings({ user }) {
   return (
     <Layout user={user} currentPath="/settings/network" title="Network Settings">
       <h2 className="text-xl font-bold text-white mb-6">Network / iptables</h2>
+
+      {isAdmin && <TorSettings />}
 
       {/* Rule cards */}
       <div className="space-y-3 mb-6">

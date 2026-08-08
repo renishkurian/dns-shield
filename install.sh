@@ -20,10 +20,14 @@ apt-get install -y -qq \
     redis-server nginx supervisor \
     nodejs npm \
     unbound netfilter-persistent iptables-persistent \
+    tor \
     curl git
 
 # Enable Redis
 systemctl enable --now redis-server
+
+# Tor is optional at runtime — leave stopped until enabled from Settings → Network
+systemctl disable --now tor 2>/dev/null || true
 
 # ─── Application user & directory ────────────────────────────────────────────
 echo "[2/8] Setting up application directory..."
@@ -67,10 +71,11 @@ chown -R www-data:www-data "$APP_DIR"
 chmod 775 "$APP_DIR/logs"
 chmod 664 "$APP_DIR/logs"/*.log 2>/dev/null || true
 
-# ─── Sudoers ──────────────────────────────────────────────────────────────────
+# ─── Sudoers (iptables, unbound, wireguard, Tor enable/disable/torrc, etc.) ───
 echo "[6/8] Configuring sudoers..."
 cp "$APP_DIR/sudoers.d/dns-shield" /etc/sudoers.d/dns-shield
 chmod 440 /etc/sudoers.d/dns-shield
+visudo -cf /etc/sudoers.d/dns-shield
 
 # ─── Supervisor ───────────────────────────────────────────────────────────────
 echo "[7/8] Configuring supervisor..."
@@ -157,4 +162,5 @@ echo "  Next steps:"
 echo "    1. Configure Unbound on port 5335"
 echo "    2. Point your router's DNS to $IP"
 echo "    3. Run 'Update Gravity' from the Adlists page"
+echo "    4. (Optional) Enable Tor DNS under Settings → Network"
 echo ""

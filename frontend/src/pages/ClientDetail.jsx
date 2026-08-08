@@ -112,6 +112,7 @@ export default function ClientDetail({ user, total, blocked, top_domains = [], v
   const [historySearch, setHistorySearch] = useState('')
   const [activeTab, setActiveTab] = useState('visited')
   const [releasing, setReleasing] = useState(false)
+  const [torBusy, setTorBusy] = useState(false)
   const isAdmin = user?.role === 'admin'
   const quarantined = isQuarantinedClient(client)
 
@@ -154,6 +155,32 @@ export default function ClientDetail({ user, total, blocked, top_domains = [], v
       await alert('Failed to remove quarantine.', 'error')
     } finally {
       setReleasing(false)
+    }
+  }
+
+  const toggleRouteViaTor = async () => {
+    if (!client?.id || torBusy) return
+    const next = !client.route_via_tor
+    if (next && !(await confirm(
+      `Route DNS for ${client.ip} via Tor?\n\nQueries will resolve through 127.0.0.1:9053. Tor must be running (Settings → Network).`
+    ))) return
+    setTorBusy(true)
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+        body: JSON.stringify({ route_via_tor: next }),
+      })
+      if (!res.ok) {
+        await alert('Failed to update Tor routing.', 'error')
+        return
+      }
+      const data = await res.json()
+      setClient(c => ({ ...c, ...data }))
+    } catch {
+      await alert('Failed to update Tor routing.', 'error')
+    } finally {
+      setTorBusy(false)
     }
   }
 
@@ -253,6 +280,40 @@ export default function ClientDetail({ user, total, blocked, top_domains = [], v
                 )}
               </div>
             </div>
+
+            {isAdmin && (
+              <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-slate-700/50 bg-slate-800/30 px-4 py-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <Globe size={14} className="text-brand-400 shrink-0" />
+                    <p className="text-sm font-semibold text-white">Route via Tor</p>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Resolve this client&apos;s DNS through Tor (127.0.0.1:9053) instead of Unbound.
+                  </p>
+                </div>
+                <div className="relative shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={!!client.route_via_tor}
+                    disabled={torBusy}
+                    onChange={toggleRouteViaTor}
+                    className="peer sr-only"
+                    id="toggle-client-tor"
+                  />
+                  <label
+                    htmlFor="toggle-client-tor"
+                    className={`block w-12 h-6 rounded-full cursor-pointer transition-colors ${
+                      client.route_via_tor ? 'bg-brand-500' : 'bg-slate-700'
+                    } ${torBusy ? 'opacity-50 pointer-events-none' : ''}`}
+                  >
+                    <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                      client.route_via_tor ? 'translate-x-6' : 'translate-x-0'
+                    }`} />
+                  </label>
+                </div>
+              </div>
+            )}
 
             {quarantined && (
               <div className="mb-6 flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-red-500/25 bg-red-500/5 px-4 py-3">

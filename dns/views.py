@@ -1811,6 +1811,34 @@ class NetworkIPTablesSaveView(APIView):
             return Response({'error': str(exc)}, status=500)
 
 
+class TorStatusView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        from dns import tor_manager
+        status = tor_manager.get_status()
+        if not status.get('installed'):
+            status['install_command'] = tor_manager.get_install_command()
+        return Response(status)
+
+
+class TorToggleView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def post(self, request):
+        from dns import tor_manager
+        enabled = request.data.get('enabled')
+        if enabled not in (True, False, 'true', 'false', '1', '0', 1, 0):
+            return Response({'error': 'enabled must be true or false'}, status=400)
+        want_on = enabled in (True, 'true', '1', 1)
+        ok, output = tor_manager.enable_tor() if want_on else tor_manager.disable_tor()
+        return Response({
+            'ok': ok,
+            'output': output,
+            'status': tor_manager.get_status(),
+        })
+
+
 # ─── USERS ────────────────────────────────────────────────────────────────────
 
 class UserListView(APIView):

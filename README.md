@@ -121,7 +121,15 @@ To install DNS Shield on a fresh Debian Bookworm system (e.g., Raspberry Pi 4/5)
 
 - **Unbound**: DNS Shield expects an upstream recursive resolver like Unbound running on `127.0.0.1:5335`.
 - **Environment**: Customize `.env` for production secrets, allowed hosts, and Redis URL.
-- **Sudoers**: The `www-data` user requires specific NOPASSWD permissions for `iptables` and `unbound` management (provided in `sudoers.d/`).
+- **Sudoers**: The `www-data` user requires specific NOPASSWD permissions for `iptables`, `unbound`, WireGuard, and Tor management (provided in `sudoers.d/dns-shield`; installed by `install.sh`).
+- **Tor** (optional): The installer packages Tor but leaves the service disabled. Enable it from **Settings → Network**; per-client routing uses DNSPort `127.0.0.1:9053`. On an existing install:
+  ```bash
+  sudo apt-get install -y tor
+  sudo systemctl disable --now tor   # until enabled from the UI
+  sudo cp sudoers.d/dns-shield /etc/sudoers.d/dns-shield
+  sudo chmod 440 /etc/sudoers.d/dns-shield
+  sudo visudo -cf /etc/sudoers.d/dns-shield
+  ```
 
 ---
 
