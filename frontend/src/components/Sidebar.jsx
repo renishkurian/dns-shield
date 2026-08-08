@@ -43,6 +43,7 @@ const navGroups = [
     label: 'Settings',
     items: [
       { label: 'DNS Config', href: '/settings/dns', icon: Network },
+      { label: 'Network & Tor', href: '/settings/network', icon: Globe, adminOnly: true },
       { label: 'Alerts', href: '/settings/alerts', icon: Bell },
       { label: 'Appearance', href: '/settings/appearance', icon: Palette },
       { label: 'AI Integrations', href: '/settings/ai', icon: Sparkles },
