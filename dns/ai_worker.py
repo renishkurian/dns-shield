@@ -21,6 +21,7 @@ logger = logging.getLogger('dns.ai_worker')
 
 INTERVAL_HOURS_KEY = 'ai_auto_interval_hours'
 AUTO_ENABLED_KEY = 'ai_auto_enabled'
+QUARANTINE_ENABLED_KEY = 'ai_auto_quarantine_enabled'
 LAST_RUN_KEY = 'ai_auto_last_run'
 
 
@@ -35,6 +36,14 @@ def get_auto_interval_hours() -> int:
 
 def is_auto_enabled() -> bool:
     return SystemSetting.objects.filter(key=AUTO_ENABLED_KEY, value='true').exists()
+
+
+def is_auto_quarantine_enabled() -> bool:
+    """Default true when unset so existing installs keep current quarantine behavior."""
+    raw = SystemSetting.objects.filter(key=QUARANTINE_ENABLED_KEY).values_list('value', flat=True).first()
+    if raw is None:
+        return True
+    return str(raw).lower() in ('true', '1', 'yes', 'on')
 
 
 def mark_last_run(when=None):
@@ -141,6 +150,28 @@ def run_profiler(lookback_hours=None, force=False):
             if response.upper().startswith('QUARANTINE'):
                 reason = response.split(':', 1)[-1].strip() if ':' in response else 'Behavioral anomalies detected.'
                 logger.warning('[AI THREAT INTEL] Flagging %s — %s', ip, reason)
+
+                # Mark suspicious domains low trust so they stay in future scans
+                bump_domains_trust(
+                    prompt_domains[:20],
+                    25,
+                    label='malicious',
+                    reason=reason,
+                    source='auto_intelligence',
+                )
+
+                if not is_auto_quarantine_enabled():
+                    SystemEvent.objects.create(
+                        type='ai_quarantine',
+                        message=(
+                            f'AI recommended quarantine for {ip} but auto device quarantine '
+                            f'is disabled: {reason}'
+                        ),
+                        severity='warning',
+                        data={'ip': ip, 'reason': reason, 'applied': False},
+                    )
+                    continue
+
                 quarantined += 1
 
                 q_group, _ = BlockGroup.objects.get_or_create(
@@ -177,15 +208,7 @@ def run_profiler(lookback_hours=None, force=False):
                     type='ai_quarantine',
                     message=f'AI flagged {ip} for quarantine: {reason}',
                     severity='warning',
-                    data={'ip': ip, 'reason': reason},
-                )
-                # Mark suspicious domains low trust so they stay in future scans
-                bump_domains_trust(
-                    prompt_domains[:20],
-                    25,
-                    label='malicious',
-                    reason=reason,
-                    source='auto_intelligence',
+                    data={'ip': ip, 'reason': reason, 'applied': True},
                 )
             elif response.upper().startswith('SAFE'):
                 reason = response.split(':', 1)[-1].strip() if ':' in response else 'Behavioral profile looks safe.'

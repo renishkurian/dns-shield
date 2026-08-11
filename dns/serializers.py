@@ -157,10 +157,8 @@ class LocalDnsRecordSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at']
 
     def validate_domain(self, value):
-        domain = (value or '').strip().lower().rstrip('.')
-        if not domain or ' ' in domain:
-            raise serializers.ValidationError('Enter a valid domain name.')
-        return domain
+        # Strip pasted URLs → bare hostname (DNS never sees http:// or paths)
+        return _normalize_block_domain(value, allow_regex=False)
 
     def validate_ttl(self, value):
         if value is None:
@@ -177,16 +175,10 @@ class LocalCnameRecordSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at']
 
     def validate_domain(self, value):
-        domain = (value or '').strip().lower().rstrip('.')
-        if not domain or ' ' in domain:
-            raise serializers.ValidationError('Enter a valid domain name.')
-        return domain
+        return _normalize_block_domain(value, allow_regex=False)
 
     def validate_target(self, value):
-        target = (value or '').strip().lower().rstrip('.')
-        if not target or ' ' in target:
-            raise serializers.ValidationError('Enter a valid target domain.')
-        return target
+        return _normalize_block_domain(value, allow_regex=False)
 
     def validate_ttl(self, value):
         if value is None:

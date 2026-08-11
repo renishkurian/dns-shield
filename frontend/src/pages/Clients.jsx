@@ -119,7 +119,7 @@ export default function Clients({ user, clients: initial = [] }) {
       {showAdd && (
         <div className="card mb-4 animate-fade-in">
           <h3 className="font-semibold text-white text-sm mb-3">Add / Update Client</h3>
-          <div className="grid grid-cols-2 gap-3 mb-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
             <div>
               <label className="label">IP Address</label>
               <input className="input text-xs font-mono" placeholder="192.168.1.42"
@@ -148,15 +148,15 @@ export default function Clients({ user, clients: initial = [] }) {
         </div>
       )}
 
-      <div className="card p-0 overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="card p-0 overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm min-w-[520px]">
           <thead className="border-b border-slate-700">
             <tr className="text-xs font-medium text-slate-400">
               <th className="text-left px-4 py-3">IP Address</th>
               <th className="text-left px-4 py-3">Name</th>
-              <th className="text-left px-4 py-3">Group</th>
+              <th className="text-left px-4 py-3 hidden sm:table-cell">Group</th>
               <th className="text-left px-4 py-3">Status</th>
-              <th className="text-left px-4 py-3">Comment</th>
+              <th className="text-left px-4 py-3 hidden md:table-cell">Comment</th>
               <th className="text-right px-4 py-3">Actions</th>
             </tr>
           </thead>
@@ -190,7 +190,7 @@ export default function Clients({ user, clients: initial = [] }) {
                   <div className="text-white text-xs font-semibold">{c.nickname || c.name || '—'}</div>
                   <div className="text-[10px] text-slate-500 uppercase tracking-tighter">{c.vendor || 'Unknown Device'}</div>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 hidden sm:table-cell">
                   <span className={c.group ? 'badge-blue' : 'text-slate-600 text-[10px]'}>
                     {c.group_name || c.group || 'Default'}
                   </span>
@@ -210,7 +210,7 @@ export default function Clients({ user, clients: initial = [] }) {
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 hidden md:table-cell">
                   <span
                     className={`text-[10px] ${hasQuarantineLabel(c) || c.is_blocked ? 'text-red-300/90 not-italic' : 'text-slate-500 italic'}`}
                     title={c.comment || ''}

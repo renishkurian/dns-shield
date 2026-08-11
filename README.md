@@ -51,6 +51,7 @@ Session handling follows the same `curl_cffi` browser-completion flow as related
 On the same settings page:
 
 - Enable scheduled runs and pick a frequency (1h → weekly).
+- Optionally enable **Auto device quarantine** — when on, compromised hosts are blocked and moved to the Quarantine group; when off, AI only logs a recommendation.
 - **Save schedule**, or **Run now** for an immediate pass.
 - High-trust domains are skipped automatically during profiling.
 - Requires Smart AI to be enabled.

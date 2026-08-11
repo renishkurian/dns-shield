@@ -173,13 +173,13 @@ export default function Lists({ user, lists: initial = [], uniqueCount: initialU
         </div>
       )}
 
-      <div className="card p-0 overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="card p-0 overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm min-w-[420px]">
           <thead className="border-b border-slate-700">
             <tr className="text-slate-400 text-xs font-medium">
               <th className="text-left px-4 py-3">Name</th>
-              <th className="text-left px-4 py-3">Domains</th>
-              <th className="text-left px-4 py-3">Last Updated</th>
+              <th className="text-left px-4 py-3 hidden sm:table-cell">Domains</th>
+              <th className="text-left px-4 py-3 hidden md:table-cell">Last Updated</th>
               <th className="text-left px-4 py-3">Status</th>
               {isAdmin && <th className="px-4 py-3 text-right">Actions</th>}
             </tr>
@@ -189,12 +189,12 @@ export default function Lists({ user, lists: initial = [], uniqueCount: initialU
               <tr key={list.id} className="border-b border-slate-800/50 hover:bg-slate-700/20">
                 <td className="px-4 py-3">
                   <div className="text-slate-200 text-xs font-medium">{list.name}</div>
-                  <div className="text-slate-600 text-xs truncate max-w-xs">{list.url}</div>
+                  <div className="text-slate-600 text-xs truncate max-w-[180px] sm:max-w-xs">{list.url}</div>
                 </td>
-                <td className="px-4 py-3 text-slate-400 text-xs">
+                <td className="px-4 py-3 text-slate-400 text-xs hidden sm:table-cell">
                   {list.domain_count ? list.domain_count.toLocaleString() : '—'}
                 </td>
-                <td className="px-4 py-3 text-slate-500 text-xs">
+                <td className="px-4 py-3 text-slate-500 text-xs hidden md:table-cell">
                   {list.last_updated ? new Date(list.last_updated).toLocaleDateString() : 'Never'}
                 </td>
                 <td className="px-4 py-3">

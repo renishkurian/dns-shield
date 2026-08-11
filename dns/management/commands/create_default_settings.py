@@ -18,6 +18,10 @@ DEFAULTS = {
     'unbound_config_path': ('/etc/unbound/unbound.conf.d/dns-shield.conf', 'Unbound config file'),
     'ai_auto_enabled': ('false', 'Run Smart AI behavioral profiler on a schedule'),
     'ai_auto_interval_hours': ('24', 'Hours between auto intelligence profiler runs'),
+    'ai_auto_quarantine_enabled': (
+        'true',
+        'When auto intelligence flags a device, automatically quarantine it (block DNS + Quarantine group)',
+    ),
 }
 
 SAFE_SEARCH_DEFAULTS = ['google', 'bing', 'youtube', 'duckduckgo', 'yandex']

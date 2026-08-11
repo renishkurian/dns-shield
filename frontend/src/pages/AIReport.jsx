@@ -653,15 +653,15 @@ export default function AIReport({ user }) {
                 </div>
               )}
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm min-w-[600px]">
                   <thead className="border-b border-slate-700 text-slate-400 text-xs">
                     <tr>
                       <th className="text-left px-4 py-3 font-medium">Site</th>
                       <th className="text-left px-4 py-3 font-medium">Domain</th>
-                      <th className="text-left px-4 py-3 font-medium">URL</th>
-                      <th className="text-left px-4 py-3 font-medium">Clients</th>
+                      <th className="text-left px-4 py-3 font-medium hidden md:table-cell">URL</th>
+                      <th className="text-left px-4 py-3 font-medium hidden lg:table-cell">Clients</th>
                       <th className="text-left px-4 py-3 font-medium">Category</th>
-                      <th className="text-right px-4 py-3 font-medium">Hits</th>
+                      <th className="text-right px-4 py-3 font-medium hidden sm:table-cell">Hits</th>
                       <th className="text-right px-4 py-3 font-medium w-28">Actions</th>
                     </tr>
                   </thead>
@@ -682,7 +682,7 @@ export default function AIReport({ user }) {
                               {item.domain}
                             </a>
                           </td>
-                          <td className="px-4 py-3 text-xs">
+                          <td className="px-4 py-3 text-xs hidden md:table-cell">
                             <a
                               href={item.url || `https://${item.domain}`}
                               target="_blank"
@@ -694,7 +694,7 @@ export default function AIReport({ user }) {
                               <ExternalLink size={11} className="shrink-0 opacity-70" />
                             </a>
                           </td>
-                          <td className="px-4 py-3 max-w-[260px]" title={clientTitle || '—'}>
+                          <td className="px-4 py-3 max-w-[260px] hidden lg:table-cell" title={clientTitle || '—'}>
                             {clients.length ? (
                               <p className="text-[11px] text-slate-300 truncate whitespace-nowrap">
                                 {clients.map(c => (c.name && c.name !== c.ip ? c.name : c.ip)).join(', ')}
@@ -706,7 +706,7 @@ export default function AIReport({ user }) {
                           <td className="px-4 py-3">
                             <CategoryBadge name={item.category || 'other'} />
                           </td>
-                          <td className="px-4 py-3 text-right text-xs text-slate-400 font-mono">
+                          <td className="px-4 py-3 text-right text-xs text-slate-400 font-mono hidden sm:table-cell">
                             {item.hits ?? 0}
                           </td>
                           <td className="px-4 py-3 text-right">

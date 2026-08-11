@@ -41,47 +41,89 @@ export default function Layout({ children, user, currentPath, title }) {
 
   return (
     <ToastProvider>
-      <div className="flex h-screen bg-surface overflow-hidden" onClick={() => setIsNotifOpen(false)}>
-        <Sidebar currentPath={currentPath} user={user} />
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          {/* Top bar */}
-          <header className="shrink-0 h-14 bg-surface-50 border-b border-slate-700/50 flex items-center px-6">
-            <div className="flex items-center gap-4">
-              <h1 className="text-sm font-semibold text-white">
-                {title || 'DNS Shield'}
-              </h1>
-              <button 
-                onClick={(e) => { e.stopPropagation(); setIsSearchOpen(true); }}
-                className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-800/30 border border-slate-700/50 rounded-xl text-slate-500 hover:text-slate-400 hover:border-slate-600 transition-all group"
-              >
-                <Search size={14} className="group-hover:text-brand-400" />
-                <span className="text-xs">Quick Search...</span>
-                <span className="ml-4 text-[10px] font-bold text-slate-600 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 tracking-widest">⌘K</span>
-              </button>
-            </div>
-            
-            <div className="ml-auto flex items-center gap-4 text-xs text-slate-500 relative">
-              <button 
-                onClick={(e) => { e.stopPropagation(); setIsNotifOpen(!isNotifOpen); }}
-                className={`p-2 rounded-xl border border-slate-700/50 text-slate-500 hover:text-white hover:bg-slate-800/50 transition-all ${isNotifOpen ? 'bg-brand-500/10 text-brand-400 border-brand-500/50' : ''}`}
-              >
-                <Bell size={18} />
-              </button>
-              <StatusDot />
-              
-              <NotificationCentre isOpen={isNotifOpen} onClose={() => setIsNotifOpen(false)} />
-            </div>
-          </header>
-          
-          {/* Page content */}
-          <main className="flex-1 overflow-auto p-6">
-            {children}
-          </main>
-        </div>
-
-        <CommandPalette isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
-      </div>
+      <MobileAwarLayout
+        user={user}
+        currentPath={currentPath}
+        title={title}
+        isSearchOpen={isSearchOpen}
+        setIsSearchOpen={setIsSearchOpen}
+        isNotifOpen={isNotifOpen}
+        setIsNotifOpen={setIsNotifOpen}
+      >
+        {children}
+      </MobileAwarLayout>
     </ToastProvider>
+  )
+}
+
+function MobileAwarLayout({ children, user, currentPath, title, isSearchOpen, setIsSearchOpen, isNotifOpen, setIsNotifOpen }) {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+
+  return (
+    <div className="flex h-screen bg-surface overflow-hidden" onClick={() => setIsNotifOpen(false)}>
+      <Sidebar
+        currentPath={currentPath}
+        user={user}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+      />
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top bar */}
+        <header className="shrink-0 h-14 bg-surface-50 border-b border-slate-700/50 flex items-center px-3 md:px-6 gap-2">
+          {/* Mobile hamburger */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setIsSidebarOpen(true) }}
+            className="md:hidden p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all"
+            aria-label="Open menu"
+          >
+            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="6" x2="15" y2="6" /><line x1="3" y1="10" x2="15" y2="10" /><line x1="3" y1="14" x2="15" y2="14" />
+            </svg>
+          </button>
+
+          <div className="flex items-center gap-4 min-w-0">
+            <h1 className="text-sm font-semibold text-white truncate">
+              {title || 'DNS Shield'}
+            </h1>
+            <button 
+              onClick={(e) => { e.stopPropagation(); setIsSearchOpen(true); }}
+              className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-800/30 border border-slate-700/50 rounded-xl text-slate-500 hover:text-slate-400 hover:border-slate-600 transition-all group"
+            >
+              <Search size={14} className="group-hover:text-brand-400" />
+              <span className="text-xs">Quick Search...</span>
+              <span className="ml-4 text-[10px] font-bold text-slate-600 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 tracking-widest">⌘K</span>
+            </button>
+          </div>
+          
+          <div className="ml-auto flex items-center gap-2 md:gap-4 text-xs text-slate-500 relative">
+            {/* Mobile search icon */}
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsSearchOpen(true); }}
+              className="md:hidden p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all"
+              aria-label="Search"
+            >
+              <Search size={16} />
+            </button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); setIsNotifOpen(!isNotifOpen); }}
+              className={`p-2 rounded-xl border border-slate-700/50 text-slate-500 hover:text-white hover:bg-slate-800/50 transition-all ${isNotifOpen ? 'bg-brand-500/10 text-brand-400 border-brand-500/50' : ''}`}
+            >
+              <Bell size={18} />
+            </button>
+            <StatusDot />
+            
+            <NotificationCentre isOpen={isNotifOpen} onClose={() => setIsNotifOpen(false)} />
+          </div>
+        </header>
+        
+        {/* Page content */}
+        <main className="flex-1 overflow-auto p-3 md:p-6">
+          {children}
+        </main>
+      </div>
+
+      <CommandPalette isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+    </div>
   )
 }
 
@@ -92,9 +134,20 @@ Layout.propTypes = {
   title: PropTypes.string,
 }
 
+MobileAwarLayout.propTypes = {
+  children: PropTypes.node,
+  user: PropTypes.object,
+  currentPath: PropTypes.string,
+  title: PropTypes.string,
+  isSearchOpen: PropTypes.bool,
+  setIsSearchOpen: PropTypes.func,
+  isNotifOpen: PropTypes.bool,
+  setIsNotifOpen: PropTypes.func,
+}
+
 function StatusDot() {
   return (
-    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+    <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-500">
       <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse-slow" />
       <span>Proxy active</span>
     </div>

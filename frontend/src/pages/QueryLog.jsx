@@ -99,7 +99,7 @@ function QueryInspector({ entry, onClose }) {
   }
 
   return (
-    <div className="card animate-slide-in w-80 shrink-0 h-fit sticky top-20">
+    <div className="card animate-slide-in w-full md:w-80 shrink-0 h-fit sticky top-20">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-white text-sm">Query Inspector</h3>
         <button onClick={onClose} className="text-slate-500 hover:text-white">
@@ -368,25 +368,25 @@ export default function QueryLog({ user, initialQueries = [] }) {
 
   return (
     <Layout user={user} currentPath="/queries" title="Query Log">
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
         <h2 className="text-xl font-bold text-white">Query Log</h2>
-        <div className="flex items-center gap-2 ml-auto flex-wrap">
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
           <input
-            className="input w-40 text-xs py-1.5"
+            className="input w-36 text-xs py-1.5"
             placeholder="Filter domain…"
             value={draft.domain}
             onChange={e => setDraft(d => ({ ...d, domain: e.target.value }))}
             onKeyDown={e => e.key === 'Enter' && applySearch()}
           />
           <input
-            className="input w-32 text-xs py-1.5"
+            className="input w-28 text-xs py-1.5"
             placeholder="Client IP…"
             value={draft.client}
             onChange={e => setDraft(d => ({ ...d, client: e.target.value }))}
             onKeyDown={e => e.key === 'Enter' && applySearch()}
           />
           <select
-            className="input w-44 text-xs py-1.5"
+            className="input w-36 text-xs py-1.5"
             value={filters.status}
             onChange={e => setFilters(f => ({ ...f, status: e.target.value }))}
           >
@@ -404,7 +404,7 @@ export default function QueryLog({ user, initialQueries = [] }) {
             {paused ? 'Resume' : 'Pause'}
           </button>
 
-          <div className="h-4 w-px bg-slate-700 mx-2" />
+          <div className="h-4 w-px bg-slate-700 mx-1 hidden sm:block" />
 
           <button onClick={clearLogs} className="btn-ghost text-red-400">
             <Trash size={14} /> Clear
@@ -415,22 +415,23 @@ export default function QueryLog({ user, initialQueries = [] }) {
         </div>
       </div>
 
+      {/* Main content + inspector */}
       <div className="flex gap-4">
         <div
           className="flex-1 card overflow-hidden p-0 flex flex-col"
           style={{ maxHeight: 'calc(100vh - 180px)' }}
         >
           <div className="overflow-auto flex-1 min-h-0">
-            <table className="w-full text-xs">
+            <table className="w-full text-xs min-w-[600px]">
               <thead className="sticky top-0 bg-surface-50 border-b border-slate-700 z-10">
                 <tr className="text-slate-400 font-medium">
                   <th className="text-left px-4 py-3">Time</th>
                   <th className="text-left px-4 py-3">Domain</th>
-                  <th className="text-left px-4 py-3">Type</th>
-                  <th className="text-left px-4 py-3">Client</th>
+                  <th className="text-left px-4 py-3 hidden sm:table-cell">Type</th>
+                  <th className="text-left px-4 py-3 hidden sm:table-cell">Client</th>
                   <th className="text-left px-4 py-3">Status</th>
-                  <th className="text-left px-4 py-3">Answered By / Rule</th>
-                  <th className="text-right px-4 py-3">ms</th>
+                  <th className="text-left px-4 py-3 hidden lg:table-cell">Answered By / Rule</th>
+                  <th className="text-right px-4 py-3 hidden md:table-cell">ms</th>
                   <th className="text-center px-4 py-3">Actions</th>
                 </tr>
               </thead>
@@ -445,22 +446,22 @@ export default function QueryLog({ user, initialQueries = [] }) {
                       onClick={() => setSelectedEntry(selectedEntry?.id === e.id ? null : e)}
                     >
                       <td className="px-4 py-2 text-slate-500 font-mono whitespace-nowrap">{ts}</td>
-                      <td className="px-4 py-2 font-mono text-slate-200 max-w-xs truncate">
+                      <td className="px-4 py-2 font-mono text-slate-200 max-w-[120px] md:max-w-xs truncate">
                         <span className="inline-flex items-center gap-1.5">
                           {e.dnssec_status === 'SECURE' && <Lock size={12} className="text-green-500" />}
                           {e.dnssec_status === 'INSECURE' && <Unlock size={12} className="text-yellow-500" />}
                           {e.domain}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-slate-500">{e.query_type}</td>
-                      <td className="px-4 py-2 text-slate-400 font-mono">{e.client_ip}</td>
+                      <td className="px-4 py-2 text-slate-500 hidden sm:table-cell">{e.query_type}</td>
+                      <td className="px-4 py-2 text-slate-400 font-mono hidden sm:table-cell">{e.client_ip}</td>
                       <td className="px-4 py-2">
                         <span className="inline-flex items-center gap-1.5">
                           <span className={s.cls}>{s.label}</span>
                           {e.resolved_by === 'Cache' && <Database size={12} className="text-brand-400" />}
                         </span>
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-4 py-2 hidden lg:table-cell">
                         <div className="flex items-center gap-1.5 text-slate-500 italic">
                           {(() => {
                             const Icon = RESOLUTION_ICONS[e.resolved_by] || ArrowRight
@@ -474,7 +475,7 @@ export default function QueryLog({ user, initialQueries = [] }) {
                           })()}
                         </div>
                       </td>
-                      <td className="px-4 py-2 text-right text-slate-500">
+                      <td className="px-4 py-2 text-right text-slate-500 hidden md:table-cell">
                         {e.response_time_ms != null ? e.response_time_ms.toFixed(1) : '—'}
                       </td>
                       <td className="px-4 py-2">
@@ -544,13 +545,34 @@ export default function QueryLog({ user, initialQueries = [] }) {
           </div>
         </div>
 
+        {/* Desktop side inspector */}
         {selectedEntry && (
-          <QueryInspector
-            entry={selectedEntry}
-            onClose={() => setSelectedEntry(null)}
-          />
+          <div className="hidden md:block">
+            <QueryInspector
+              entry={selectedEntry}
+              onClose={() => setSelectedEntry(null)}
+            />
+          </div>
         )}
       </div>
+
+      {/* Mobile inspector overlay */}
+      {selectedEntry && (
+        <div className="fixed inset-0 z-50 flex items-end md:hidden" onClick={() => setSelectedEntry(null)}>
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          />
+          <div
+            className="relative z-10 w-full max-h-[80vh] overflow-y-auto rounded-t-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <QueryInspector
+              entry={selectedEntry}
+              onClose={() => setSelectedEntry(null)}
+            />
+          </div>
+        </div>
+      )}
     </Layout>
   )
 }

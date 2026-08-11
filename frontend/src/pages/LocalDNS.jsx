@@ -178,11 +178,12 @@ export default function LocalDNS({ user, records: initialRecords = [], cnames: i
                   <label className="label">Domain</label>
                   <input
                     className="input text-xs font-mono"
-                    placeholder="nas.home.arpa"
+                    placeholder="balarama.local.arpa"
                     value={aForm.domain}
                     onChange={e => { setAErr(''); setAForm(f => ({ ...f, domain: e.target.value })) }}
                     onKeyDown={e => e.key === 'Enter' && addA()}
                   />
+                  <p className="text-[10px] text-slate-600 mt-1">Hostname only — no http:// or path</p>
                 </div>
                 <div>
                   <label className="label">IP Address</label>

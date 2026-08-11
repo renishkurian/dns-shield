@@ -12,6 +12,25 @@ from dnslib import RR, QTYPE, A, AAAA, CNAME
 logger = logging.getLogger('dns_proxy')
 
 
+def _normalize_hostname(value: str) -> str:
+    """Strip scheme/path from pasted URLs so lookups match real DNS queries."""
+    from urllib.parse import urlparse
+
+    raw = (value or '').strip().lower().rstrip('.')
+    if not raw:
+        return ''
+    if '://' in raw or raw.startswith('//'):
+        parsed = urlparse(raw if '://' in raw else f'https:{raw}')
+        raw = (parsed.hostname or parsed.path.split('/')[0] or '').lower()
+    else:
+        raw = raw.split('/')[0].split('?')[0].split('#')[0]
+    if raw.count(':') == 1 and not raw.startswith('['):
+        host, _, port = raw.partition(':')
+        if port.isdigit():
+            raw = host
+    return raw.rstrip('.')
+
+
 class LocalDnsStore:
     def __init__(self):
         self._lock = threading.RLock()
@@ -27,7 +46,7 @@ class LocalDnsStore:
 
             a_map = {}
             for row in LocalDnsRecord.objects.filter(enabled=True):
-                domain = (row.domain or '').strip().lower().rstrip('.')
+                domain = _normalize_hostname(row.domain)
                 if not domain:
                     continue
                 a_map[domain] = {
@@ -37,8 +56,8 @@ class LocalDnsStore:
 
             c_map = {}
             for row in LocalCnameRecord.objects.filter(enabled=True):
-                domain = (row.domain or '').strip().lower().rstrip('.')
-                target = (row.target or '').strip().lower().rstrip('.')
+                domain = _normalize_hostname(row.domain)
+                target = _normalize_hostname(row.target)
                 if not domain or not target:
                     continue
                 c_map[domain] = {

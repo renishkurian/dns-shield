@@ -5,7 +5,7 @@ import {
   LayoutDashboard, List, Shield, Filter, CheckCircle, Globe,
   Users, Search, Network, LogOut,
   ChevronLeft, ChevronRight, Wifi, User, Database, BookOpen, Sparkles,
-  ClipboardList, Activity, Key, ShieldAlert, Clock, Bell, Palette, Download
+  ClipboardList, Activity, Key, ShieldAlert, Clock, Bell, Palette, Download, X
 } from 'lucide-react'
 import ShieldControl from './ShieldControl'
 
@@ -77,7 +77,7 @@ const adminGroup = {
   ]
 }
 
-function NavItem({ item, currentPath, collapsed }) {
+function NavItem({ item, currentPath, collapsed, onClick }) {
   const active = currentPath === item.href || (item.href !== '/' && currentPath?.startsWith(item.href))
   const ref = useRef(null)
 
@@ -91,6 +91,7 @@ function NavItem({ item, currentPath, collapsed }) {
     <div ref={ref}>
       <Link
         href={item.href}
+        onClick={onClick}
         className={`${active ? 'nav-item-active' : 'nav-item'} w-full ${collapsed ? 'justify-center px-2' : ''}`}
         title={collapsed ? item.label : undefined}
       >
@@ -105,9 +106,10 @@ NavItem.propTypes = {
   item: PropTypes.shape({ label: PropTypes.string, href: PropTypes.string, icon: PropTypes.elementType }).isRequired,
   currentPath: PropTypes.string,
   collapsed: PropTypes.bool,
+  onClick: PropTypes.func,
 }
 
-export default function Sidebar({ currentPath, user }) {
+export default function Sidebar({ currentPath, user, isOpen, onClose }) {
   const [collapsed, setCollapsed] = useState(false)
 
   const handleLogout = async () => {
@@ -128,13 +130,12 @@ export default function Sidebar({ currentPath, user }) {
     items: group.items.filter(item => !item.adminOnly || isAdmin),
   }))
   if (isAdmin) {
-    // Insert Administration right after Overview
     groupsToRender.splice(1, 0, adminGroup)
   }
 
-  return (
+  const sidebarContent = (
     <aside className={`
-      flex flex-col h-screen bg-surface-50 border-r border-slate-700/50 
+      flex flex-col h-full bg-surface-50 border-r border-slate-700/50 
       transition-all duration-300 shrink-0
       ${collapsed ? 'w-16' : 'w-64'}
     `}>
@@ -154,12 +155,22 @@ export default function Sidebar({ currentPath, user }) {
               <div className="text-[10px] text-brand-500 font-bold uppercase tracking-widest">v2.1 Premium</div>
             </div>
           )}
+          {/* Desktop collapse toggle */}
           <button
-            className="ml-auto text-slate-500 hover:text-white transition-colors"
+            className="ml-auto text-slate-500 hover:text-white transition-colors hidden md:block"
             onClick={() => setCollapsed(c => !c)}
           >
             {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
+          {/* Mobile close button */}
+          {onClose && (
+            <button
+              className="ml-auto text-slate-500 hover:text-white transition-colors md:hidden"
+              onClick={onClose}
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -177,7 +188,13 @@ export default function Sidebar({ currentPath, user }) {
             )}
             <div className="space-y-0.5">
               {group.items.map(item => (
-                <NavItem key={item.href} item={item} currentPath={currentPath} collapsed={collapsed} />
+                <NavItem
+                  key={item.href}
+                  item={item}
+                  currentPath={currentPath}
+                  collapsed={collapsed}
+                  onClick={onClose}
+                />
               ))}
             </div>
           </div>
@@ -188,6 +205,7 @@ export default function Sidebar({ currentPath, user }) {
       <div className="p-2 border-t border-slate-700/50 space-y-0.5">
         <Link
           href="/profile"
+          onClick={onClose}
           className={`nav-item w-full ${collapsed ? 'justify-center px-2' : ''}`}
         >
           <div className="w-6 h-6 bg-brand-600/30 rounded-full flex items-center justify-center shrink-0">
@@ -211,11 +229,37 @@ export default function Sidebar({ currentPath, user }) {
       </div>
     </aside>
   )
+
+  return (
+    <>
+      {/* Desktop sidebar */}
+      <div className="hidden md:flex h-screen">
+        {sidebarContent}
+      </div>
+
+      {/* Mobile drawer overlay */}
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex md:hidden">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={onClose}
+          />
+          {/* Drawer */}
+          <div className="relative z-10 h-full overflow-y-auto animate-slide-in-left">
+            {sidebarContent}
+          </div>
+        </div>
+      )}
+    </>
+  )
 }
 
 Sidebar.propTypes = {
   currentPath: PropTypes.string,
   user: PropTypes.shape({ username: PropTypes.string, role: PropTypes.string }),
+  isOpen: PropTypes.bool,
+  onClose: PropTypes.func,
 }
 
 function getCsrf() {

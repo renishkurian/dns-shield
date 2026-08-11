@@ -42,6 +42,7 @@ export default function AI({ user: currentUser }) {
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('')
   const [autoEnabled, setAutoEnabled] = useState(false)
+  const [autoQuarantine, setAutoQuarantine] = useState(true)
   const [autoInterval, setAutoInterval] = useState('24')
   const [lastRun, setLastRun] = useState('')
   const [saving, setSaving] = useState(false)
@@ -75,6 +76,8 @@ export default function AI({ user: currentUser }) {
         setApiKey(data.ai_api_key || '')
         setModel(data.ai_model || '')
         setAutoEnabled(data.ai_auto_enabled === 'true')
+        // Default on when unset (matches backend / existing installs)
+        setAutoQuarantine(data.ai_auto_quarantine_enabled !== 'false')
         setAutoInterval(data.ai_auto_interval_hours || '24')
         setLastRun(data.ai_auto_last_run || '')
       })
@@ -95,6 +98,7 @@ export default function AI({ user: currentUser }) {
           ai_api_key: apiKey,
           ai_model: model || meta.modelHint,
           ai_auto_enabled: autoEnabled ? 'true' : 'false',
+          ai_auto_quarantine_enabled: autoQuarantine ? 'true' : 'false',
           ai_auto_interval_hours: autoInterval,
         }),
       })
@@ -379,6 +383,35 @@ export default function AI({ user: currentUser }) {
                 <div className={`
                   absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform
                   ${autoEnabled ? 'translate-x-6' : 'translate-x-0'}
+                `} />
+              </label>
+            </div>
+          </div>
+
+          <div className={`flex items-center justify-between p-4 bg-slate-900/50 border border-slate-700/50 rounded-xl ${!autoEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
+            <div>
+              <h4 className="font-semibold text-white text-sm">Auto device quarantine</h4>
+              <p className="text-xs text-slate-400 mt-0.5 max-w-sm">
+                When the profiler flags a device as compromised, automatically block its DNS
+                and move it to the Quarantine group. Turn off to only log recommendations.
+              </p>
+            </div>
+            <div className="relative">
+              <input
+                type="checkbox"
+                checked={autoQuarantine}
+                onChange={e => setAutoQuarantine(e.target.checked)}
+                className="peer sr-only"
+                id="toggle-ai-quarantine"
+                disabled={!autoEnabled}
+              />
+              <label htmlFor="toggle-ai-quarantine" className={`
+                block w-12 h-6 rounded-full cursor-pointer transition-colors
+                ${autoQuarantine && autoEnabled ? 'bg-red-500' : 'bg-slate-700'}
+              `}>
+                <div className={`
+                  absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform
+                  ${autoQuarantine && autoEnabled ? 'translate-x-6' : 'translate-x-0'}
                 `} />
               </label>
             </div>
