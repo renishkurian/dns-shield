@@ -84,6 +84,43 @@ def check_ai_auto_profiler():
         logger.error('AI auto profiler tick failed: %s', e)
 
 
+def cleanup_old_query_logs():
+    """
+    Delete query logs older than log_retention_days (default 30).
+    Batched deletes keep SQLite responsive under large tables (~1M+ rows).
+    """
+    from datetime import timedelta
+
+    from dns.models import QueryLog, SystemSetting
+
+    try:
+        row = SystemSetting.objects.filter(key='log_retention_days').first()
+        days = int(row.value) if row and str(row.value).isdigit() else 30
+    except Exception:
+        days = 30
+
+    if days <= 0:
+        return
+
+    cutoff = dj_timezone.now() - timedelta(days=days)
+    batch_size = 5000
+    total = 0
+    while True:
+        ids = list(
+            QueryLog.objects.filter(timestamp__lt=cutoff)
+            .values_list('id', flat=True)[:batch_size]
+        )
+        if not ids:
+            break
+        deleted, _ = QueryLog.objects.filter(id__in=ids).delete()
+        total += deleted
+        if deleted < batch_size:
+            break
+
+    if total:
+        logger.info('Purged %s query logs older than %s days', total, days)
+
+
 def start_scheduler():
     global _scheduler
     if _scheduler is not None:
@@ -92,8 +129,15 @@ def start_scheduler():
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(check_scheduled_rules, 'interval', minutes=1, id='check_schedules', replace_existing=True)
     _scheduler.add_job(check_ai_auto_profiler, 'interval', minutes=1, id='ai_auto_profiler', replace_existing=True)
+    _scheduler.add_job(
+        cleanup_old_query_logs,
+        'interval',
+        hours=6,
+        id='query_log_retention',
+        replace_existing=True,
+    )
     _scheduler.start()
-    logger.info('DNS Shield background scheduler started (rules + AI auto intelligence).')
+    logger.info('DNS Shield background scheduler started (rules + AI + log retention).')
     return _scheduler
 
 

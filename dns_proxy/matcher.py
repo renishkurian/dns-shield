@@ -2,12 +2,17 @@
 Thread-safe DNS domain matcher that loads rules from DB into memory.
 Reload is non-disruptive — uses a lock so the proxy is never blocked.
 Supports per-group blocking rules.
+
+Gravity domains use a compact hash index (~20MB for millions of domains)
+instead of a Python set of strings (~1GB).
 """
 import re
 import threading
 import logging
 import math
 from collections import defaultdict
+
+from dns_proxy.gravity_index import GravityIndex
 
 logger = logging.getLogger('dns_proxy')
 
@@ -24,7 +29,7 @@ class Matcher:
         self.regex_allows = defaultdict(list)
         self.patterns = defaultdict(list)
         self.app_blocks = defaultdict(set) # group_id -> set of domains
-        self.gravity = set() # Gravity is currently global but could be per-adlist-group
+        self.gravity = GravityIndex()  # compact global gravity index
         self.ai_threshold = 4.0 # Default Shannon entropy threshold (bits per char)
         self.reload()
 
@@ -95,12 +100,11 @@ class Matcher:
                 for d in domains:
                     new_app_blocks[gid].add(d.lower())
 
-            # Load Gravity (Global for now, but Adlist filtering by group is possible)
-            new_gravity = {
-                (d or '').strip().lower()
-                for d in GravityDomain.objects.values_list('domain', flat=True)
-                if d
-            }
+            # Gravity: stream domains and pack into a compact hash index.
+            # Avoids holding ~2.5M Python strings in a set (~1GB RSS).
+            new_gravity = GravityIndex.from_domains(
+                GravityDomain.objects.values_list('domain', flat=True).iterator(chunk_size=20000)
+            )
 
             with self._lock:
                 self.exact_blocks = new_exact_blocks
@@ -115,7 +119,7 @@ class Matcher:
 
             logger.info(
                 f"Matcher reloaded: {len(new_exact_blocks)} groups with rules, "
-                f"{len(new_gravity)} gravity domains"
+                f"{len(new_gravity)} gravity domains (compact index)"
             )
         except Exception as exc:
             logger.error(f"Matcher reload failed: {exc}")
@@ -194,17 +198,9 @@ class Matcher:
         return None
 
     def in_gravity(self, domain: str) -> bool:
-        """Gravity check is currently global."""
-        domain_lower = domain.lower()
+        """Gravity check is currently global (domain or any parent label)."""
         with self._lock:
-            if domain_lower in self.gravity:
-                return True
-            parts = domain_lower.split('.')
-            for i in range(1, len(parts)):
-                parent = '.'.join(parts[i:])
-                if parent in self.gravity:
-                    return True
-        return False
+            return self.gravity.contains_domain_or_parent(domain)
 
     def is_dga(self, domain: str) -> bool:
         """
