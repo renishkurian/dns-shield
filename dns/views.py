@@ -2884,15 +2884,15 @@ class DoHQueryView(APIView):
     def _resolve_record(self, dns_req, client_ip):
         from dns_proxy.proxy import DNSShieldResolver
         from dns_proxy.matcher import get_matcher
-        from dns.models import Setting
+        from dns.models import SystemSetting
         
         up_host = '127.0.0.1'
         up_port = 5335
         try:
-            h = Setting.objects.filter(key='upstream_dns_host').first()
+            h = SystemSetting.objects.filter(key='upstream_dns_host').first()
             if h and h.value:
                 up_host = h.value
-            p = Setting.objects.filter(key='upstream_dns_port').first()
+            p = SystemSetting.objects.filter(key='upstream_dns_port').first()
             if p and p.value:
                 up_port = int(p.value)
         except Exception:
