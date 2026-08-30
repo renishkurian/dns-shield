@@ -2846,6 +2846,25 @@ class DnsCacheFlushView(APIView):
             return Response({'error': str(e)}, status=500)
 
 
+from rest_framework.renderers import JSONRenderer, BaseRenderer
+from rest_framework.parsers import BaseParser
+
+class BinaryDNSParser(BaseParser):
+    media_type = '*/*'
+
+    def parse(self, stream, media_type=None, parser_context=None):
+        return stream.read()
+
+class DNSMessageRenderer(BaseRenderer):
+    media_type = 'application/dns-message'
+    format = 'dns-message'
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        if isinstance(data, (bytes, bytearray)):
+            return data
+        return data
+
+
 # ─── DOH (RFC 8484) / JSON RESOLVER ─────────────────────────────────────────
 
 class DoHQueryView(APIView):
@@ -2858,6 +2877,8 @@ class DoHQueryView(APIView):
     """
     authentication_classes = []
     permission_classes = [AllowAny]
+    parser_classes = [BinaryDNSParser]
+    renderer_classes = [DNSMessageRenderer, JSONRenderer]
 
     def get(self, request):
         dns_param = request.query_params.get('dns')
@@ -2870,9 +2891,9 @@ class DoHQueryView(APIView):
         return Response({'error': 'Missing dns or name parameter'}, status=400)
 
     def post(self, request):
-        content_type = request.content_type or ''
-        if 'application/dns-message' in content_type or request.body:
-            return self._handle_wire_binary(request, request.body)
+        raw_body = request.data if isinstance(request.data, (bytes, bytearray)) else request.body
+        if raw_body:
+            return self._handle_wire_binary(request, raw_body)
         return Response({'error': 'Invalid content type or empty body'}, status=400)
 
     def _get_client_ip(self, request):
