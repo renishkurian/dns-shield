@@ -12,7 +12,7 @@ const STEPS = [
 
 export default function DoHSetup({ user }) {
   const [step, setStep] = useState(1)
-  const [domain, setDomain] = useState('dns.rklab.online')
+  const [domain, setDomain] = useState('shield.rklab.online')
   const [copied, setCopied] = useState('')
 
   const copy = (text, key) => {
