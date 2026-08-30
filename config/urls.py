@@ -1,10 +1,14 @@
 from django.contrib import admin
 from django.urls import path, include, re_path
-from dns import page_views
+from dns import page_views, views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('dns.api_urls')),
+
+    # DoH / DNS-over-HTTPS endpoints (RFC 8484 & JSON)
+    path('dns-query', views.DoHQueryView.as_view(), name='doh-query'),
+    path('resolve', views.DoHQueryView.as_view(), name='doh-resolve'),
 
     # Page routes
     path('login', page_views.login_page, name='login'),

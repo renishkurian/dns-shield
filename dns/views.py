@@ -2846,6 +2846,118 @@ class DnsCacheFlushView(APIView):
             return Response({'error': str(e)}, status=500)
 
 
+# ─── DOH (RFC 8484) / JSON RESOLVER ─────────────────────────────────────────
+
+class DoHQueryView(APIView):
+    """
+    Standard RFC 8484 DNS-over-HTTPS endpoint + JSON DNS (RFC 8427 / Cloudflare / Google style).
+    Accepts:
+      - GET /dns-query?dns=<base64url>
+      - POST /dns-query (Content-Type: application/dns-message, body: wire format)
+      - GET /resolve?name=example.com&type=A (JSON format)
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        dns_param = request.query_params.get('dns')
+        name_param = request.query_params.get('name')
+
+        if dns_param:
+            return self._handle_wire_base64(request, dns_param)
+        elif name_param:
+            return self._handle_json_query(request, name_param)
+        return Response({'error': 'Missing dns or name parameter'}, status=400)
+
+    def post(self, request):
+        content_type = request.content_type or ''
+        if 'application/dns-message' in content_type or request.body:
+            return self._handle_wire_binary(request, request.body)
+        return Response({'error': 'Invalid content type or empty body'}, status=400)
+
+    def _get_client_ip(self, request):
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            return x_forwarded_for.split(',')[0].strip()
+        return request.META.get('REMOTE_ADDR', '127.0.0.1')
+
+    def _resolve_record(self, dns_req, client_ip):
+        from dns_proxy.proxy import DNSShieldResolver
+        from dns_proxy.matcher import get_matcher
+        from dns.models import Setting
+        
+        up_host = '127.0.0.1'
+        up_port = 5335
+        try:
+            h = Setting.objects.filter(key='upstream_dns_host').first()
+            if h and h.value:
+                up_host = h.value
+            p = Setting.objects.filter(key='upstream_dns_port').first()
+            if p and p.value:
+                up_port = int(p.value)
+        except Exception:
+            pass
+
+        class DummyHandler:
+            client_address = (client_ip, 0)
+
+        resolver = DNSShieldResolver(get_matcher(), up_host, up_port)
+        return resolver.resolve(dns_req, DummyHandler())
+
+    def _handle_wire_base64(self, request, dns_b64):
+        import base64
+        try:
+            # Pad if needed
+            rem = len(dns_b64) % 4
+            if rem > 0:
+                dns_b64 += '=' * (4 - rem)
+            raw = base64.urlsafe_b64decode(dns_b64)
+            return self._handle_wire_binary(request, raw)
+        except Exception as exc:
+            return Response({'error': f'Failed to decode base64: {exc}'}, status=400)
+
+    def _handle_wire_binary(self, request, raw_bytes):
+        import dnslib
+        from django.http import HttpResponse
+        try:
+            dns_req = dnslib.DNSRecord.parse(raw_bytes)
+            client_ip = self._get_client_ip(request)
+            reply = self._resolve_record(dns_req, client_ip)
+            return HttpResponse(reply.pack(), content_type='application/dns-message')
+        except Exception as exc:
+            return HttpResponse(f'DNS decode error: {exc}', status=400, content_type='text/plain')
+
+    def _handle_json_query(self, request, name):
+        import dnslib
+        qtype_str = request.query_params.get('type', 'A').upper()
+        qtype = getattr(dnslib.QTYPE, qtype_str, dnslib.QTYPE.A)
+
+        dns_req = dnslib.DNSRecord.question(name, qtype_str)
+        client_ip = self._get_client_ip(request)
+        reply = self._resolve_record(dns_req, client_ip)
+
+        answers = []
+        for rr in reply.rr:
+            answers.append({
+                'name': str(rr.rname),
+                'type': rr.rtype,
+                'TTL': rr.ttl,
+                'data': str(rr.rdata),
+            })
+
+        status_code = reply.header.rcode
+        return Response({
+            'Status': status_code,
+            'TC': bool(reply.header.tc),
+            'RD': bool(reply.header.rd),
+            'RA': bool(reply.header.ra),
+            'AD': bool(reply.header.ad),
+            'CD': bool(reply.header.cd),
+            'Question': [{'name': name, 'type': qtype}],
+            'Answer': answers,
+        })
+
+
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 def _reload_matcher():

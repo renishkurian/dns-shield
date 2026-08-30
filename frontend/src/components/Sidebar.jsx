@@ -43,6 +43,7 @@ const navGroups = [
     label: 'Settings',
     items: [
       { label: 'DNS Config', href: '/settings/dns', icon: Network },
+      { label: 'DoH / Private DNS', href: '/settings/doh', icon: Globe },
       { label: 'Network & Tor', href: '/settings/network', icon: Globe, adminOnly: true },
       { label: 'Backup', href: '/settings/backup', icon: Download, adminOnly: true },
       { label: 'Alerts', href: '/settings/alerts', icon: Bell },
