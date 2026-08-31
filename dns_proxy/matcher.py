@@ -79,6 +79,7 @@ class Matcher:
         self.patterns = defaultdict(list)
         self.app_blocks = defaultdict(set) # group_id -> set of domains
         self.adblock_engine = None
+        self.adblock_rules_count = 0
         self.gravity = GravityIndex()  # compact global gravity index
         self.ai_threshold = 4.0 # Default Shannon entropy threshold (bits per char)
         self.cname_uncloaking_enabled = True
@@ -170,6 +171,7 @@ class Matcher:
 
             # Optional: initialize native adblock engine if adblock is available
             new_adblock_engine = None
+            adblock_rules_count = 0
             if adblock is not None:
                 try:
                     filter_lines = []
@@ -189,6 +191,7 @@ class Matcher:
                         fset = adblock.FilterSet()
                         fset.add_filter_list(filter_lines)
                         new_adblock_engine = adblock.Engine(fset)
+                        adblock_rules_count = len(filter_lines)
                 except Exception as ab_err:
                     logger.warning(f"Adblock engine build skipped: {ab_err}")
 
@@ -202,6 +205,7 @@ class Matcher:
                 self.patterns = new_patterns
                 self.app_blocks = new_app_blocks
                 self.adblock_engine = new_adblock_engine
+                self.adblock_rules_count = adblock_rules_count
                 self.gravity = new_gravity
                 self.cname_uncloaking_enabled = cname_enabled
                 self.canary_blocking_enabled = canary_enabled
@@ -351,6 +355,21 @@ class Matcher:
             p = count / length
             entropy -= p * math.log2(p)
         return entropy
+
+    def get_modules_info(self) -> dict:
+        """Return operational status and metadata for all advanced inspection modules."""
+        with self._lock:
+            return {
+                'adblock_installed': adblock is not None,
+                'adblock_active': bool(self.adblock_engine and self.adblock_engine_enabled),
+                'adblock_rules_count': getattr(self, 'adblock_rules_count', 0),
+                'tldextract_installed': _tld_extractor is not None,
+                'dnspython_installed': True,
+                'cname_uncloaking_enabled': self.cname_uncloaking_enabled,
+                'canary_blocking_enabled': self.canary_blocking_enabled,
+                'dga_protection_enabled': self.dga_protection_enabled,
+                'adblock_engine_enabled': self.adblock_engine_enabled,
+            }
 
 
 _matcher = None

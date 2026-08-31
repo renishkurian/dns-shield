@@ -4,7 +4,8 @@ import Layout from '../../components/Layout'
 import {
   Globe, Save, RefreshCw, CheckCircle, ShieldCheck, ShieldAlert,
   Wifi, Activity, CheckCircle2, XCircle, AlertTriangle, ArrowRight,
-  Server, Cpu, Database, Radio, Zap, Layers, Lock, Sparkles
+  Server, Cpu, Database, Radio, Zap, Layers, Lock, Sparkles,
+  Copy, Check, Terminal
 } from 'lucide-react'
 import { Link } from '@inertiajs/react'
 import { useAlert } from '../../components/Toast'
@@ -22,7 +23,14 @@ export default function DNSSettings({ user, settings: initial = {} }) {
   const [statusLoading, setStatusLoading] = useState(true)
   const [diagLoading, setDiagLoading] = useState(false)
   const [diagResult, setDiagResult] = useState(null)
+  const [copiedCmd, setCopiedCmd] = useState(null)
   const isAdmin = user?.role === 'admin'
+
+  const copyText = (text, id) => {
+    navigator.clipboard.writeText(text)
+    setCopiedCmd(id)
+    setTimeout(() => setCopiedCmd(null), 2500)
+  }
 
   const fetchStatus = async () => {
     try {
@@ -332,6 +340,74 @@ export default function DNSSettings({ user, settings: initial = {} }) {
             {modules.map(m => {
               const Icon = m.icon
               const isEnabled = (settings[m.key] ?? 'true') !== 'false'
+              const modInfo = status?.modules_info
+
+              let runtimeTelemetry = null
+              if (m.key === 'module_adblock_engine') {
+                if (modInfo?.adblock_installed) {
+                  runtimeTelemetry = (
+                    <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-[10px]">
+                      <span className="text-emerald-400 font-medium flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                        Rust Engine Active ({modInfo.adblock_rules_count || 0} filter rules)
+                      </span>
+                      <span className="text-slate-500 font-mono">adblock module</span>
+                    </div>
+                  )
+                } else {
+                  runtimeTelemetry = (
+                    <div className="mt-3 pt-2.5 border-t border-slate-800/80 space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px] text-amber-300">
+                        <span className="flex items-center gap-1 font-semibold">
+                          <AlertTriangle size={11} className="text-amber-400 shrink-0" /> Package not installed in server venv
+                        </span>
+                        <button
+                          onClick={() => copyText('pip install adblock', 'adblock')}
+                          className="flex items-center gap-1 text-[9px] font-mono bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 transition-colors"
+                        >
+                          {copiedCmd === 'adblock' ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
+                          {copiedCmd === 'adblock' ? 'Copied' : 'Copy command'}
+                        </button>
+                      </div>
+                      <div className="bg-slate-950 px-2 py-1 rounded text-[10px] font-mono text-slate-400 flex items-center gap-1.5">
+                        <Terminal size={10} className="text-slate-600" />
+                        <span>pip install adblock</span>
+                      </div>
+                    </div>
+                  )
+                }
+              } else if (m.key === 'module_dga_protection') {
+                runtimeTelemetry = (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-[10px]">
+                    <span className="text-sky-400 font-medium flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+                      {modInfo?.tldextract_installed ? 'PSL Extractor Active (tldextract)' : 'Entropy Engine Active'}
+                    </span>
+                    <span className="text-slate-500 font-mono">&gt; 4.0 bits entropy</span>
+                  </div>
+                )
+              } else if (m.key === 'module_cname_uncloaking') {
+                runtimeTelemetry = (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-[10px]">
+                    <span className="text-indigo-400 font-medium flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                      Recursive Canonical CNAME Inspection
+                    </span>
+                    <span className="text-slate-500 font-mono">1st-party disguise</span>
+                  </div>
+                )
+              } else if (m.key === 'module_canary_blocking') {
+                runtimeTelemetry = (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-[10px]">
+                    <span className="text-amber-400 font-medium flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      Apple &amp; Firefox Canaries Intercepted
+                    </span>
+                    <span className="text-slate-500 font-mono">NXDOMAIN</span>
+                  </div>
+                )
+              }
+
               return (
                 <div 
                   key={m.key} 
@@ -341,43 +417,47 @@ export default function DNSSettings({ user, settings: initial = {} }) {
                       : 'bg-slate-950/40 border-slate-800/60 opacity-60'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-3 mb-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <div className={`p-2 rounded-lg border ${m.color}`}>
-                        <Icon size={16} />
+                  <div>
+                    <div className="flex items-start justify-between gap-3 mb-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`p-2 rounded-lg border ${m.color}`}>
+                          <Icon size={16} />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-white leading-snug">{m.name}</h4>
+                          <span className={`inline-block px-1.5 py-0.2 text-[9px] font-bold rounded mt-0.5 ${
+                            isEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'
+                          }`}>
+                            {isEnabled ? 'ENABLED' : 'DISABLED'}
+                          </span>
+                        </div>
                       </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-white leading-snug">{m.name}</h4>
-                        <span className={`inline-block px-1.5 py-0.2 text-[9px] font-bold rounded mt-0.5 ${
-                          isEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'
-                        }`}>
-                          {isEnabled ? 'ENABLED' : 'DISABLED'}
-                        </span>
-                      </div>
+
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => toggleModule(m.key)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            isEnabled ? 'bg-brand-500' : 'bg-slate-700'
+                          }`}
+                          aria-pressed={isEnabled}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                              isEnabled ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      )}
                     </div>
 
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => toggleModule(m.key)}
-                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                          isEnabled ? 'bg-brand-500' : 'bg-slate-700'
-                        }`}
-                        aria-pressed={isEnabled}
-                      >
-                        <span
-                          aria-hidden="true"
-                          className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                            isEnabled ? 'translate-x-4' : 'translate-x-0'
-                          }`}
-                        />
-                      </button>
-                    )}
+                    <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
+                      {m.desc}
+                    </p>
                   </div>
 
-                  <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
-                    {m.desc}
-                  </p>
+                  {runtimeTelemetry}
                 </div>
               )
             })}

@@ -2151,6 +2151,23 @@ class SystemStatusView(APIView):
             status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client']
         ).count()
 
+        # Modules operational status
+        from dns_proxy.matcher import get_matcher
+        try:
+            modules_info = get_matcher().get_modules_info()
+        except Exception:
+            modules_info = {
+                'adblock_installed': False,
+                'adblock_active': False,
+                'adblock_rules_count': 0,
+                'tldextract_installed': False,
+                'dnspython_installed': True,
+                'cname_uncloaking_enabled': True,
+                'canary_blocking_enabled': True,
+                'dga_protection_enabled': True,
+                'adblock_engine_enabled': True,
+            }
+
         return Response({
             'proxy_running': proxy_listening,
             'unbound': unbound_active,
@@ -2166,6 +2183,7 @@ class SystemStatusView(APIView):
             'last_query_status': last_query.status if last_query else None,
             'total_queries_24h': total_24h,
             'blocked_queries_24h': blocked_24h,
+            'modules_info': modules_info,
         })
 
 
