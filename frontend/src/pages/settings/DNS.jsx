@@ -119,6 +119,7 @@ export default function DNSSettings({ user, settings: initial = {} }) {
   const modules = [
     {
       key: 'module_cname_uncloaking',
+      countKey: 'cname',
       name: 'CNAME Uncloaking (1st-Party De-cloaker)',
       desc: 'Inspects canonical CNAME aliases returned by upstream resolvers to catch third-party ad networks and trackers disguised behind first-party subdomains (e.g., Criteo, Branch, Adobe Target).',
       icon: Layers,
@@ -126,6 +127,7 @@ export default function DNSSettings({ user, settings: initial = {} }) {
     },
     {
       key: 'module_canary_blocking',
+      countKey: 'canary',
       name: 'DoH & iCloud Private Relay Canary Interceptor',
       desc: 'Intercepts mask.icloud.com and use-application-dns.net to prevent Apple devices and Firefox from silently bypassing local DNS proxy filtering.',
       icon: Lock,
@@ -133,6 +135,7 @@ export default function DNSSettings({ user, settings: initial = {} }) {
     },
     {
       key: 'module_dga_protection',
+      countKey: 'dga',
       name: 'PSL-Aware DGA & Entropy Heuristic',
       desc: 'Uses Mozilla Public Suffix List (PSL) extraction and Shannon entropy analysis to detect randomized tracking subdomains and algorithmically generated malware beacons.',
       icon: Sparkles,
@@ -140,6 +143,7 @@ export default function DNSSettings({ user, settings: initial = {} }) {
     },
     {
       key: 'module_adblock_engine',
+      countKey: 'adblock',
       name: 'Native Brave Rust Adblock Engine',
       desc: 'Executes high-throughput compiled Rust adblock engine rules for advanced Adblock Plus / uBlock Origin rule syntax and fast network pattern matching.',
       icon: Zap,
@@ -408,6 +412,8 @@ export default function DNSSettings({ user, settings: initial = {} }) {
                 )
               }
 
+              const blockStats = modInfo?.counts?.[m.countKey] || { total: 0, '24h': 0 }
+
               return (
                 <div 
                   key={m.key} 
@@ -419,17 +425,30 @@ export default function DNSSettings({ user, settings: initial = {} }) {
                 >
                   <div>
                     <div className="flex items-start justify-between gap-3 mb-2.5">
-                      <div className="flex items-center gap-2.5">
-                        <div className={`p-2 rounded-lg border ${m.color}`}>
+                      <div className="flex items-start gap-2.5">
+                        <div className={`p-2 rounded-lg border shrink-0 mt-0.5 ${m.color}`}>
                           <Icon size={16} />
                         </div>
                         <div>
                           <h4 className="text-xs font-bold text-white leading-snug">{m.name}</h4>
-                          <span className={`inline-block px-1.5 py-0.2 text-[9px] font-bold rounded mt-0.5 ${
-                            isEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'
-                          }`}>
-                            {isEnabled ? 'ENABLED' : 'DISABLED'}
-                          </span>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            <span className={`inline-block px-1.5 py-0.5 text-[9px] font-bold rounded ${
+                              isEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'
+                            }`}>
+                              {isEnabled ? 'ENABLED' : 'DISABLED'}
+                            </span>
+
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-mono font-semibold rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                              <ShieldAlert size={9} />
+                              {blockStats.total.toLocaleString()} blocked
+                            </span>
+
+                            {blockStats['24h'] > 0 && (
+                              <span className="text-[9px] font-mono text-slate-400">
+                                (+{blockStats['24h'].toLocaleString()} 24h)
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 

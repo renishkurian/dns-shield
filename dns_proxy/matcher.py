@@ -86,6 +86,7 @@ class Matcher:
         self.canary_blocking_enabled = True
         self.dga_protection_enabled = True
         self.adblock_engine_enabled = True
+        self.module_hit_counts = defaultdict(int)
         self.reload()
 
     def reload(self):
@@ -356,9 +357,20 @@ class Matcher:
             entropy -= p * math.log2(p)
         return entropy
 
-    def get_modules_info(self) -> dict:
-        """Return operational status and metadata for all advanced inspection modules."""
+    def increment_module_hit(self, module_key: str):
+        """Thread-safe increment for live session module block counters."""
         with self._lock:
+            self.module_hit_counts[module_key] += 1
+
+    def get_modules_info(self, db_counts: dict | None = None) -> dict:
+        """Return operational status, metadata, and blocked counters for all advanced inspection modules."""
+        db_counts = db_counts or {}
+        with self._lock:
+            cname_total = max(db_counts.get('cname_total', 0), self.module_hit_counts['cname'])
+            canary_total = max(db_counts.get('canary_total', 0), self.module_hit_counts['canary'])
+            dga_total = max(db_counts.get('dga_total', 0), self.module_hit_counts['dga'])
+            adblock_total = max(db_counts.get('adblock_total', 0), self.module_hit_counts['adblock'])
+
             return {
                 'adblock_installed': adblock is not None,
                 'adblock_active': bool(self.adblock_engine and self.adblock_engine_enabled),
@@ -369,6 +381,24 @@ class Matcher:
                 'canary_blocking_enabled': self.canary_blocking_enabled,
                 'dga_protection_enabled': self.dga_protection_enabled,
                 'adblock_engine_enabled': self.adblock_engine_enabled,
+                'counts': {
+                    'cname': {
+                        'total': cname_total,
+                        '24h': db_counts.get('cname_24h', 0),
+                    },
+                    'canary': {
+                        'total': canary_total,
+                        '24h': db_counts.get('canary_24h', 0),
+                    },
+                    'dga': {
+                        'total': dga_total,
+                        '24h': db_counts.get('dga_24h', 0),
+                    },
+                    'adblock': {
+                        'total': adblock_total,
+                        '24h': db_counts.get('adblock_24h', 0),
+                    },
+                }
             }
 
 

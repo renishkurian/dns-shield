@@ -26,6 +26,7 @@ DEFAULTS = {
     'module_canary_blocking': ('true', 'Block DoH and iCloud Private Relay canary domains to force local proxy usage'),
     'module_dga_protection': ('true', 'Enable PSL-aware Shannon entropy DGA & zero-day tracker protection'),
     'module_adblock_engine': ('true', 'Enable Brave Rust native adblock engine matching'),
+    'module_log_exclusions': ('true', 'Enable Query Log exclusions for noisy domains'),
 }
 
 SAFE_SEARCH_DEFAULTS = ['google', 'bing', 'youtube', 'duckduckgo', 'yandex']

@@ -2123,22 +2123,19 @@ class SystemStatusView(APIView):
 
         def check_port_53():
             try:
-                import dnslib
-                req = dnslib.DNSRecord.question('dns-shield.test', 'A')
+                # Check if port 53 UDP socket is bound/open without sending synthetic DNS queries to logs
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                sock.settimeout(0.5)
-                sock.sendto(req.pack(), ('127.0.0.1', 53))
-                data, _ = sock.recvfrom(512)
-                sock.close()
-                return True
-            except Exception:
                 try:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    s.bind(('127.0.0.1', 53))
-                    s.close()
+                    # If bind succeeds, nothing was listening on port 53 (proxy is down)
+                    sock.bind(('127.0.0.1', 53))
+                    sock.close()
                     return False
                 except OSError:
+                    # Port 53 is occupied and listening (proxy is up)
+                    sock.close()
                     return True
+            except Exception:
+                return True
 
         proxy_listening = check_port_53()
         unbound_active = check_service('unbound')
@@ -2151,10 +2148,21 @@ class SystemStatusView(APIView):
             status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client']
         ).count()
 
-        # Modules operational status
+        # Modules operational status & block counts
         from dns_proxy.matcher import get_matcher
+        from django.db.models import Count, Q
         try:
-            modules_info = get_matcher().get_modules_info()
+            db_counts = QueryLog.objects.aggregate(
+                cname_total=Count('id', filter=Q(resolved_by__icontains='CNAME Uncloaking') | Q(matched_rule__startswith='CNAME')),
+                canary_total=Count('id', filter=Q(resolved_by__icontains='Canary') | Q(matched_rule__startswith='Canary')),
+                dga_total=Count('id', filter=Q(status='blocked_ai') | Q(resolved_by__icontains='Blocked (AI)')),
+                adblock_total=Count('id', filter=Q(resolved_by__icontains='Adblock') | Q(matched_rule__startswith='Adblock:')),
+                cname_24h=Count('id', filter=(Q(resolved_by__icontains='CNAME Uncloaking') | Q(matched_rule__startswith='CNAME')) & Q(timestamp__gte=since_24h)),
+                canary_24h=Count('id', filter=(Q(resolved_by__icontains='Canary') | Q(matched_rule__startswith='Canary')) & Q(timestamp__gte=since_24h)),
+                dga_24h=Count('id', filter=(Q(status='blocked_ai') | Q(resolved_by__icontains='Blocked (AI)')) & Q(timestamp__gte=since_24h)),
+                adblock_24h=Count('id', filter=(Q(resolved_by__icontains='Adblock') | Q(matched_rule__startswith='Adblock:')) & Q(timestamp__gte=since_24h)),
+            )
+            modules_info = get_matcher().get_modules_info(db_counts=db_counts)
         except Exception:
             modules_info = {
                 'adblock_installed': False,
@@ -2166,6 +2174,12 @@ class SystemStatusView(APIView):
                 'canary_blocking_enabled': True,
                 'dga_protection_enabled': True,
                 'adblock_engine_enabled': True,
+                'counts': {
+                    'cname': {'total': 0, '24h': 0},
+                    'canary': {'total': 0, '24h': 0},
+                    'dga': {'total': 0, '24h': 0},
+                    'adblock': {'total': 0, '24h': 0},
+                }
             }
 
         return Response({
@@ -3284,6 +3298,23 @@ class LogExcludedDomainPurgeView(APIView):
                     Q(domain__iexact=clean) | Q(domain__iendswith='.' + clean)
                 ).delete()
                 deleted_count += cnt
+            elif item.rule_type == 'regex':
+                # For regex, check matching domains in DB
+                try:
+                    pattern = re.compile(item.domain, re.IGNORECASE)
+                    matching_domains = [
+                        d for d in QueryLog.objects.values_list('domain', flat=True).distinct()
+                        if pattern.search(d)
+                    ]
+                    if matching_domains:
+                        cnt, _ = QueryLog.objects.filter(domain__in=matching_domains).delete()
+                        deleted_count += cnt
+                except Exception:
+                    pass
+
+        # Also purge any legacy synthetic internal test domain logs
+        cnt_test, _ = QueryLog.objects.filter(domain__iexact='dns-shield.test').delete()
+        deleted_count += cnt_test
 
         return Response({
             'ok': True,

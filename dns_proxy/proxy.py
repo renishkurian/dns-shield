@@ -89,6 +89,8 @@ class DNSShieldResolver(BaseResolver):
         # 0.07 Canary domains (prevent DoH and Apple iCloud Private Relay bypass)
         domain_lower = domain.lower()
         if getattr(self.matcher, 'canary_blocking_enabled', True) and domain_lower in CANARY_DOMAINS:
+            if hasattr(self.matcher, 'increment_module_hit'):
+                self.matcher.increment_module_hit('canary')
             elapsed = (time.monotonic() - start) * 1000
             dns_logger.log_query(domain, client_ip, 'blocked_domain', qtype,
                                  matched_rule='Canary (DoH/iCloud Bypass)', response_time_ms=elapsed,
@@ -170,6 +172,8 @@ class DNSShieldResolver(BaseResolver):
 
         # 4.5 AI Heuristic (DGA)
         if getattr(self.matcher, 'dga_protection_enabled', True) and self.matcher.is_dga(domain):
+            if hasattr(self.matcher, 'increment_module_hit'):
+                self.matcher.increment_module_hit('dga')
             elapsed = (time.monotonic() - start) * 1000
             dns_logger.log_query(domain, client_ip, 'blocked_ai', qtype,
                                  matched_rule='AI: High Entropy (DGA)', response_time_ms=elapsed,
@@ -182,6 +186,8 @@ class DNSShieldResolver(BaseResolver):
         if getattr(self.matcher, 'adblock_engine_enabled', True):
             adblock_match = self.matcher.match_adblock(domain)
             if adblock_match:
+                if hasattr(self.matcher, 'increment_module_hit'):
+                    self.matcher.increment_module_hit('adblock')
                 elapsed = (time.monotonic() - start) * 1000
                 dns_logger.log_query(domain, client_ip, 'blocked_list', qtype,
                                      matched_rule=f"Adblock: {adblock_match}", response_time_ms=elapsed,
@@ -218,6 +224,8 @@ class DNSShieldResolver(BaseResolver):
                         reason = f"CNAME (Adblock: {ab_match}) -> {cname_target}"
 
                     if cname_blocked:
+                        if hasattr(self.matcher, 'increment_module_hit'):
+                            self.matcher.increment_module_hit('cname')
                         dns_logger.log_query(domain, client_ip, 'blocked_list', qtype,
                                              matched_rule=reason, response_time_ms=elapsed,
                                              resolved_by='Blocked (CNAME Uncloaking)', ttl=0)

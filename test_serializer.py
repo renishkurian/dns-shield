@@ -230,5 +230,15 @@ class ModernAdblockAndUncloakingTests(TestCase):
         self.assertTrue(m.cname_uncloaking_enabled)
         self.assertTrue(m.canary_blocking_enabled)
 
+        # Test module hit increment and counts info
+        m.increment_module_hit('cname')
+        m.increment_module_hit('cname')
+        m.increment_module_hit('canary')
+        info = m.get_modules_info()
+        self.assertEqual(info['counts']['cname']['total'], 2)
+        self.assertEqual(info['counts']['canary']['total'], 1)
+        self.assertEqual(info['counts']['dga']['total'], 0)
+
+
 
 
