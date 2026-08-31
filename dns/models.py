@@ -282,3 +282,34 @@ class LocalCnameRecord(models.Model):
 
     def __str__(self):
         return f'{self.domain} → {self.target}'
+
+
+class LogExcludedDomain(models.Model):
+    """
+    Domains or patterns excluded from being recorded into QueryLog.
+    Excluded queries are resolved and filtered normally, but no row is saved in SQLite.
+    """
+    domain = models.CharField(max_length=255, unique=True, db_index=True)
+    rule_type = models.CharField(
+        max_length=15,
+        choices=[
+            ('exact', 'Exact match'),
+            ('wildcard', 'Wildcard (includes subdomains)'),
+            ('regex', 'Regular expression'),
+        ],
+        default='exact'
+    )
+    enabled = models.BooleanField(default=True, db_index=True)
+    comment = models.CharField(max_length=255, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    hit_count = models.PositiveIntegerField(default=0)
+    last_hit = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.domain} ({self.rule_type})"
+

@@ -41,3 +41,32 @@ def forward(request: dnslib.DNSRecord, host: str, port: int) -> dnslib.DNSRecord
         reply = request.reply()
         reply.header.rcode = dnslib.RCODE.SERVFAIL
         return reply
+
+
+def resolve_cnames(domain: str, host: str = '127.0.0.1', port: int = 5335) -> list[str]:
+    """
+    Resolve CNAME targets for domain to support deep uncloaking.
+    Returns list of canonical alias target domains.
+    """
+    targets = []
+    current = (domain or '').strip().lower()
+    for _ in range(5):
+        try:
+            req = dnslib.DNSRecord.question(current, qtype='CNAME')
+            resp = forward(req, host, port)
+            if not resp or not hasattr(resp, 'rr') or not resp.rr:
+                break
+            found = False
+            for rr in resp.rr:
+                if rr.rtype == dnslib.QTYPE.CNAME:
+                    t = str(rr.rdata).rstrip('.').lower()
+                    if t and t != current and t not in targets:
+                        targets.append(t)
+                        current = t
+                        found = True
+                        break
+            if not found:
+                break
+        except Exception:
+            break
+    return targets

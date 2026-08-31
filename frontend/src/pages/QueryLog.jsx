@@ -6,7 +6,7 @@ import {
   Play, Pause, Download, Shield, Activity, 
   CheckCircle, Search, Trash, 
   Lock, Unlock, Database, ArrowRight,
-  X, Sparkles, ChevronLeft, ChevronRight
+  X, Sparkles, ChevronLeft, ChevronRight, EyeOff
 } from 'lucide-react'
 
 const STATUS_LABELS = {
@@ -76,6 +76,17 @@ function QueryInspector({ entry, onClose }) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
       body: JSON.stringify({ domain, allow_type: 'exact', enabled: true }),
+    })
+    setLoading(false)
+    onClose()
+  }
+
+  const excludeFromLogs = async () => {
+    setLoading(true)
+    await fetch('/api/system/log-exclusions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+      body: JSON.stringify({ domain, rule_type: 'exact', comment: 'Excluded from Query Inspector', enabled: true }),
     })
     setLoading(false)
     onClose()
@@ -163,6 +174,14 @@ function QueryInspector({ entry, onClose }) {
               <CheckCircle size={12} /> Allow
             </button>
           </div>
+          <button 
+            onClick={excludeFromLogs} 
+            disabled={loading} 
+            className="btn-ghost justify-center text-xs py-1.5 border border-slate-700/50 hover:border-amber-500/50 hover:bg-amber-500/5 text-amber-400"
+            title="Exclude this domain from being recorded in future QueryLogs"
+          >
+            <EyeOff size={12} /> Exclude from QueryLog
+          </button>
           <a 
             href={`/domains/detail?domain=${domain}`}
             className="btn-ghost justify-center text-xs py-1.5 border border-slate-700/50 hover:border-brand-500/50 hover:bg-brand-500/5 text-brand-400"

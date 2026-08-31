@@ -4,6 +4,9 @@ channels==4.1.0
 channels-redis==4.2.0
 daphne==4.1.2
 dnslib==0.9.25
+dnspython>=2.6.1
+tldextract>=5.1.2
+adblock>=0.6.0
 httpx==0.27.0
 django-allauth==0.63.6
 django-axes==6.5.0

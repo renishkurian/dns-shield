@@ -7,6 +7,7 @@ from dns.models import (
     QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer,
     ScheduledRule, AlertConfig, SystemEvent, AIUsageLog, DomainTrust,
     AIReportCache, DomainCategory, LocalDnsRecord, LocalCnameRecord,
+    LogExcludedDomain,
 )
 from blocks.models import BlockedDomain, Pattern, Adlist, GravityDomain, AllowedDomain, BlockGroup, AppCategory, AppControl
 from users.models import UserProfile
@@ -403,3 +404,28 @@ class AIReportCacheDetailSerializer(serializers.ModelSerializer):
 
     def get_created_by_username(self, obj):
         return obj.created_by.username if obj.created_by else None
+
+
+class LogExcludedDomainSerializer(serializers.ModelSerializer):
+    created_by_username = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LogExcludedDomain
+        fields = [
+            'id', 'domain', 'rule_type', 'enabled', 'comment',
+            'created_by', 'created_by_username', 'hit_count', 'last_hit',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['hit_count', 'last_hit', 'created_at', 'updated_at']
+
+    def get_created_by_username(self, obj):
+        return obj.created_by.username if obj.created_by else None
+
+    def validate(self, attrs):
+        domain = attrs.get('domain', getattr(self.instance, 'domain', None))
+        rule_type = attrs.get('rule_type', getattr(self.instance, 'rule_type', 'exact'))
+        if domain:
+            domain = _normalize_block_domain(domain, allow_regex=(rule_type == 'regex'))
+            attrs['domain'] = domain
+        return attrs
+

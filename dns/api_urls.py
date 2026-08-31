@@ -59,6 +59,12 @@ urlpatterns = [
     # Settings
     path('settings', views.SettingsView.as_view()),
 
+    # Log Exclusions
+    path('system/log-exclusions', views.LogExcludedDomainListView.as_view()),
+    path('system/log-exclusions/<int:pk>', views.LogExcludedDomainDetailView.as_view()),
+    path('system/log-exclusions/test', views.LogExcludedDomainTestView.as_view()),
+    path('system/log-exclusions/purge', views.LogExcludedDomainPurgeView.as_view()),
+
     # Network / iptables
     path('network/iptables', views.NetworkIPTablesView.as_view()),
     path('network/iptables/apply', views.NetworkIPTablesApplyView.as_view()),

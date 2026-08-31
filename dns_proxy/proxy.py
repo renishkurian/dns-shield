@@ -11,6 +11,13 @@ from dnslib.server import DNSServer, BaseResolver, DNSHandler
 
 logger = logging.getLogger('dns_proxy')
 
+# Canary domains to disable DoH and Apple iCloud Private Relay, forcing local DNS proxy usage
+CANARY_DOMAINS = {
+    'use-application-dns.net',      # Firefox DoH canary
+    'mask.icloud.com',              # Apple iCloud Private Relay canary
+    'mask-h2.icloud.com',           # Apple iCloud Private Relay canary (HTTP/2)
+}
+
 
 class DNSShieldResolver(BaseResolver):
     def __init__(self, matcher, upstream_host: str, upstream_port: int):
@@ -78,6 +85,17 @@ class DNSShieldResolver(BaseResolver):
             _broadcast(domain, client_ip, 'allowed', qtype, source, elapsed,
                        resolved_ip=resolved_ip, resolved_by=source, ttl=ttl)
             return reply
+
+        # 0.07 Canary domains (prevent DoH and Apple iCloud Private Relay bypass)
+        domain_lower = domain.lower()
+        if domain_lower in CANARY_DOMAINS:
+            elapsed = (time.monotonic() - start) * 1000
+            dns_logger.log_query(domain, client_ip, 'blocked_domain', qtype,
+                                 matched_rule='Canary (DoH/iCloud Bypass)', response_time_ms=elapsed,
+                                 resolved_by='Blocked (Canary)')
+            _broadcast(domain, client_ip, 'blocked_domain', qtype, 'Canary (DoH/iCloud Bypass)', elapsed,
+                       resolved_by='Blocked (Canary)')
+            return nxdomain()
 
         # 0.1 Check Cache
         cached_resp = dns_cache.get(request)
@@ -160,9 +178,52 @@ class DNSShieldResolver(BaseResolver):
                        resolved_by='Blocked (AI)')
             return nxdomain()
 
+        # 4.6 Native Adblock engine match
+        adblock_match = self.matcher.match_adblock(domain)
+        if adblock_match:
+            elapsed = (time.monotonic() - start) * 1000
+            dns_logger.log_query(domain, client_ip, 'blocked_list', qtype,
+                                 matched_rule=f"Adblock: {adblock_match}", response_time_ms=elapsed,
+                                 resolved_by='Blocked (Adblock)')
+            _broadcast(domain, client_ip, 'blocked_list', qtype, f"Adblock: {adblock_match}", elapsed,
+                       resolved_by='Blocked (Adblock)')
+            return nxdomain()
+
         # 5. Forward to upstream
         reply = forwarder.forward(request, up_host, up_port)
         elapsed = (time.monotonic() - start) * 1000
+
+        # 5.1 CNAME Uncloaking — inspect resolved CNAME chain to catch cloaked 3rd-party trackers
+        if reply.header.rcode == dnslib.RCODE.NOERROR and reply.rr:
+            for rr in reply.rr:
+                if rr.rtype == dnslib.QTYPE.CNAME:
+                    cname_target = str(rr.rdata).rstrip('.').lower()
+                    if not cname_target or self.matcher.is_allowed(cname_target, group_id=group_id):
+                        continue
+
+                    cname_blocked = False
+                    reason = ''
+                    if self.matcher.in_gravity(cname_target):
+                        cname_blocked = True
+                        reason = f"CNAME (Gravity) -> {cname_target}"
+                    elif (d_match := self.matcher.match_domain(cname_target, group_id=group_id)):
+                        cname_blocked = True
+                        reason = f"CNAME (Domain: {d_match}) -> {cname_target}"
+                    elif (p_match := self.matcher.match_pattern(cname_target, group_id=group_id)):
+                        cname_blocked = True
+                        reason = f"CNAME (Pattern: {p_match[1]}) -> {cname_target}"
+                    elif (ab_match := self.matcher.match_adblock(cname_target)):
+                        cname_blocked = True
+                        reason = f"CNAME (Adblock: {ab_match}) -> {cname_target}"
+
+                    if cname_blocked:
+                        dns_logger.log_query(domain, client_ip, 'blocked_list', qtype,
+                                             matched_rule=reason, response_time_ms=elapsed,
+                                             resolved_by='Blocked (CNAME Uncloaking)', ttl=0)
+                        _broadcast(domain, client_ip, 'blocked_list', qtype, reason, elapsed,
+                                   resolved_by='Blocked (CNAME Uncloaking)', ttl=0)
+                        return nxdomain()
+
         status = 'nxdomain' if reply.header.rcode == dnslib.RCODE.NXDOMAIN else 'allowed'
         resolved_ip = _extract_ip(reply)
         dnssec = _get_dnssec_status(reply)

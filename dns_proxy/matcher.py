@@ -14,7 +14,38 @@ from collections import defaultdict
 
 from dns_proxy.gravity_index import GravityIndex
 
+try:
+    import tldextract
+    _tld_extractor = tldextract.TLDExtract(cache_dir='/tmp/tldextract_cache', suffix_list_urls=())
+except Exception:
+    _tld_extractor = None
+
+try:
+    import adblock
+except ImportError:
+    adblock = None
+
 logger = logging.getLogger('dns_proxy')
+
+
+def extract_domain_parts(domain: str) -> tuple[str, str, str]:
+    """
+    Return (subdomain, domain, suffix) using PSL (Public Suffix List).
+    Falls back to simple dot split if tldextract is unavailable.
+    """
+    clean_domain = (domain or '').strip().lower()
+    if not clean_domain:
+        return '', '', ''
+    if _tld_extractor:
+        try:
+            ext = _tld_extractor(clean_domain)
+            return ext.subdomain, ext.domain, ext.suffix
+        except Exception:
+            pass
+    parts = clean_domain.split('.')
+    if len(parts) >= 2:
+        return '.'.join(parts[:-2]), parts[-2], parts[-1]
+    return '', clean_domain, ''
 
 
 class Matcher:
@@ -29,6 +60,7 @@ class Matcher:
         self.regex_allows = defaultdict(list)
         self.patterns = defaultdict(list)
         self.app_blocks = defaultdict(set) # group_id -> set of domains
+        self.adblock_engine = None
         self.gravity = GravityIndex()  # compact global gravity index
         self.ai_threshold = 4.0 # Default Shannon entropy threshold (bits per char)
         self.reload()
@@ -106,6 +138,30 @@ class Matcher:
                 GravityDomain.objects.values_list('domain', flat=True).iterator(chunk_size=20000)
             )
 
+            # Optional: initialize native adblock engine if adblock is available
+            new_adblock_engine = None
+            if adblock is not None:
+                try:
+                    filter_lines = []
+                    for b in BlockedDomain.objects.filter(enabled=True):
+                        d = (b.domain or '').strip()
+                        if not d:
+                            continue
+                        if b.block_type == 'wildcard':
+                            filter_lines.append(f"||{d}^")
+                    for a in AllowedDomain.objects.filter(enabled=True):
+                        d = (a.domain or '').strip()
+                        if not d:
+                            continue
+                        if a.allow_type == 'wildcard':
+                            filter_lines.append(f"@@||{d}^")
+                    if filter_lines:
+                        fset = adblock.FilterSet()
+                        fset.add_filter_list(filter_lines)
+                        new_adblock_engine = adblock.Engine(fset)
+                except Exception as ab_err:
+                    logger.warning(f"Adblock engine build skipped: {ab_err}")
+
             with self._lock:
                 self.exact_blocks = new_exact_blocks
                 self.wildcard_blocks = new_wildcard_blocks
@@ -115,10 +171,14 @@ class Matcher:
                 self.regex_allows = new_regex_allows
                 self.patterns = new_patterns
                 self.app_blocks = new_app_blocks
+                self.adblock_engine = new_adblock_engine
                 self.gravity = new_gravity
 
             from dns_proxy.cache import get_cache
             get_cache().clear()
+
+            from dns_proxy.log_exclusions import get_log_exclusion_manager
+            get_log_exclusion_manager().reload()
 
             logger.info(
                 f"Matcher reloaded: {len(new_exact_blocks)} groups with rules, "
@@ -205,23 +265,43 @@ class Matcher:
         with self._lock:
             return self.gravity.contains_domain_or_parent(domain)
 
+    def match_adblock(self, domain: str) -> str | None:
+        """Check domain against native Adblock engine if initialized."""
+        with self._lock:
+            engine = self.adblock_engine
+        if not engine:
+            return None
+        try:
+            domain_clean = (domain or '').strip().lower()
+            res = engine.check_network_urls(
+                url=f"http://{domain_clean}/",
+                source_url="",
+                request_type="other"
+            )
+            if res.matched:
+                return res.filter or "Adblock Filter"
+        except Exception:
+            pass
+        return None
+
     def is_dga(self, domain: str) -> bool:
         """
         Check if domain is likely Algorithmically Generated (DGA) 
-        using Shannon entropy analysis of the base domain name.
+        using Shannon entropy analysis of the base domain name (PSL-aware).
         """
-        # Extract base domain (strip TLD)
-        parts = domain.split('.')
-        if len(parts) >= 2:
-            base = parts[-2]
-        else:
-            base = domain
-        
-        if len(base) < 8: # Short domains often have high entropy naturally
+        subdomain, base, _ = extract_domain_parts(domain)
+        if not base or len(base) < 8: # Short domains often have high entropy naturally
             return False
 
         ent = self._calculate_entropy(base)
-        return ent > self.ai_threshold
+        if ent > self.ai_threshold:
+            return True
+        # Check randomized tracking subdomains (e.g. dynamic beacons)
+        if subdomain:
+            first_sub = subdomain.split('.')[0]
+            if len(first_sub) >= 12 and self._calculate_entropy(first_sub) > (self.ai_threshold + 0.3):
+                return True
+        return False
 
     def _calculate_entropy(self, text: str) -> float:
         """Standard Shannon entropy calculation."""

@@ -89,6 +89,10 @@ def log_query(domain: str, client_ip: str, status: str, query_type: str,
               dnssec_status: str = 'N/A', ttl: int = 0):
     """Enqueue a query log entry (non-blocking)."""
     try:
+        from dns_proxy.log_exclusions import is_domain_log_excluded
+        if is_domain_log_excluded(domain):
+            return
+
         from dns.models import QueryLog
         entry = QueryLog(
             domain=domain,

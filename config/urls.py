@@ -22,6 +22,7 @@ urlpatterns = [
     path('safesearch', page_views.safesearch_view, name='safesearch'),
     path('local-dns', page_views.local_dns_view, name='local-dns'),
     path('settings/dns', page_views.settings_dns_view, name='settings-dns'),
+    path('settings/log-exclusions', page_views.settings_log_exclusions_view, name='settings-log-exclusions'),
     path('settings/network', page_views.settings_network_view, name='settings-network'),
     path('settings/doh', page_views.settings_doh_view, name='settings-doh'),
     path('settings/backup', page_views.settings_backup_view, name='settings-backup'),

@@ -26,6 +26,7 @@ from dns.models import (
     QueryLog, SafeSearch, SystemSetting, Client, VPNServer, VPNPeer,
     ScheduledRule, AlertConfig, SystemEvent, AIUsageLog, DomainTrust,
     AIReportCache, DomainCategory, LocalDnsRecord, LocalCnameRecord,
+    LogExcludedDomain,
 )
 from dns.permissions import IsAdminRole
 from dns.serializers import (
@@ -39,6 +40,7 @@ from dns.serializers import (
     AIReportCacheListSerializer, AIReportCacheDetailSerializer,
     DomainCategorySerializer,
     LocalDnsRecordSerializer, LocalCnameRecordSerializer,
+    LogExcludedDomainSerializer,
 )
 
 class AIUsageLogListView(APIView):
@@ -3156,6 +3158,121 @@ class DoHQueryView(APIView):
         })
 
 
+# ─── LOG EXCLUSIONS ──────────────────────────────────────────────────────────
+
+class LogExcludedDomainListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = LogExcludedDomain.objects.all().order_by('-created_at')
+        q = request.query_params.get('q')
+        if q:
+            qs = qs.filter(Q(domain__icontains=q) | Q(comment__icontains=q))
+        return Response(LogExcludedDomainSerializer(qs, many=True).data)
+
+    def post(self, request):
+        ser = LogExcludedDomainSerializer(data=request.data)
+        if ser.is_valid():
+            obj = ser.save(created_by=request.user)
+            _reload_matcher()
+            return Response(LogExcludedDomainSerializer(obj).data, status=status.HTTP_201_CREATED)
+        return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LogExcludedDomainDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        try:
+            obj = LogExcludedDomain.objects.get(pk=pk)
+        except LogExcludedDomain.DoesNotExist:
+            return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        ser = LogExcludedDomainSerializer(obj, data=request.data, partial=True)
+        if ser.is_valid():
+            obj = ser.save()
+            _reload_matcher()
+            return Response(LogExcludedDomainSerializer(obj).data)
+        return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        try:
+            obj = LogExcludedDomain.objects.get(pk=pk)
+            obj.delete()
+            _reload_matcher()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except LogExcludedDomain.DoesNotExist:
+            return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class LogExcludedDomainTestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        domain = (request.data.get('domain') or '').strip().lower().rstrip('.')
+        if not domain:
+            return Response({'error': 'domain is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from dns_proxy.log_exclusions import get_log_exclusion_manager
+        mgr = get_log_exclusion_manager()
+        mgr.reload()
+        is_matched = mgr.is_excluded(domain)
+
+        matching_rule = None
+        if is_matched:
+            for item in LogExcludedDomain.objects.filter(enabled=True):
+                dom = item.domain.lower().rstrip('.')
+                if item.rule_type == 'exact' and domain == dom:
+                    matching_rule = LogExcludedDomainSerializer(item).data
+                    break
+                elif item.rule_type == 'wildcard':
+                    clean = dom.lstrip('*').lstrip('.')
+                    if domain == clean or domain.endswith('.' + clean):
+                        matching_rule = LogExcludedDomainSerializer(item).data
+                        break
+                elif item.rule_type == 'regex':
+                    try:
+                        if re.search(item.domain, domain, re.IGNORECASE):
+                            matching_rule = LogExcludedDomainSerializer(item).data
+                            break
+                    except Exception:
+                        pass
+
+        return Response({
+            'domain': domain,
+            'is_excluded': is_matched,
+            'matching_rule': matching_rule,
+        })
+
+
+class LogExcludedDomainPurgeView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def post(self, request):
+        """Purge past QueryLogs matching currently enabled exclusions."""
+        from dns.models import QueryLog, LogExcludedDomain
+        deleted_count = 0
+        exclusions = list(LogExcludedDomain.objects.filter(enabled=True))
+
+        for item in exclusions:
+            dom = item.domain.lower().rstrip('.')
+            if item.rule_type == 'exact':
+                cnt, _ = QueryLog.objects.filter(domain__iexact=dom).delete()
+                deleted_count += cnt
+            elif item.rule_type == 'wildcard':
+                clean = dom.lstrip('*').lstrip('.')
+                cnt, _ = QueryLog.objects.filter(
+                    Q(domain__iexact=clean) | Q(domain__iendswith='.' + clean)
+                ).delete()
+                deleted_count += cnt
+
+        return Response({
+            'ok': True,
+            'deleted_count': deleted_count,
+            'message': f"Purged {deleted_count} matching query log entries.",
+        })
+
+
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 def _reload_matcher():
@@ -3179,13 +3296,16 @@ def _reload_matcher():
         pass
     try:
         from dns_proxy.matcher import get_matcher
-        import threading
-        threading.Thread(target=get_matcher().reload, daemon=True).start()
+        get_matcher().reload()
     except Exception:
         pass
     try:
         from dns_proxy.local_dns import reload_local_dns
-        import threading
-        threading.Thread(target=reload_local_dns, daemon=True).start()
+        reload_local_dns()
+    except Exception:
+        pass
+    try:
+        from dns_proxy.log_exclusions import get_log_exclusion_manager
+        get_log_exclusion_manager().reload()
     except Exception:
         pass

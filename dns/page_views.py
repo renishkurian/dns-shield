@@ -294,6 +294,13 @@ def _settings_dns_props(request):
     return {'settings': settings}
 
 
+def _log_exclusions_props(request):
+    from dns.models import LogExcludedDomain
+    from dns.serializers import LogExcludedDomainSerializer
+    items = LogExcludedDomain.objects.all().order_by('-created_at')
+    return {'exclusions': LogExcludedDomainSerializer(items, many=True).data}
+
+
 # ─── Wire up all page views ───────────────────────────────────────────────────
 
 blocks_domains_view = inertia_page('blocks/Domains', _blocks_domains_props)(lambda r: None)
@@ -304,6 +311,7 @@ safesearch_view = inertia_page('SafeSearch', _safesearch_props)(lambda r: None)
 local_dns_view = inertia_page('LocalDNS', _local_dns_props)(lambda r: None)
 clients_view = inertia_page('Clients', _clients_props)(lambda r: None)
 settings_dns_view = inertia_page('settings/DNS', _settings_dns_props)(lambda r: None)
+settings_log_exclusions_view = inertia_page('settings/LogExclusions', _log_exclusions_props)(lambda r: None)
 settings_network_view = inertia_page('settings/Network')(lambda r: None)
 settings_doh_view = inertia_page('settings/DoH')(lambda r: None)
 settings_backup_view = inertia_page('settings/Backup')(lambda r: None)
