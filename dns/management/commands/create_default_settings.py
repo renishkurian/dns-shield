@@ -22,6 +22,10 @@ DEFAULTS = {
         'true',
         'When auto intelligence flags a device, automatically quarantine it (block DNS + Quarantine group)',
     ),
+    'module_cname_uncloaking': ('true', 'Enable CNAME uncloaking to block disguised 1st-party trackers'),
+    'module_canary_blocking': ('true', 'Block DoH and iCloud Private Relay canary domains to force local proxy usage'),
+    'module_dga_protection': ('true', 'Enable PSL-aware Shannon entropy DGA & zero-day tracker protection'),
+    'module_adblock_engine': ('true', 'Enable Brave Rust native adblock engine matching'),
 }
 
 SAFE_SEARCH_DEFAULTS = ['google', 'bing', 'youtube', 'duckduckgo', 'yandex']

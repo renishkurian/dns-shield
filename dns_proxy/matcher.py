@@ -63,6 +63,10 @@ class Matcher:
         self.adblock_engine = None
         self.gravity = GravityIndex()  # compact global gravity index
         self.ai_threshold = 4.0 # Default Shannon entropy threshold (bits per char)
+        self.cname_uncloaking_enabled = True
+        self.canary_blocking_enabled = True
+        self.dga_protection_enabled = True
+        self.adblock_engine_enabled = True
         self.reload()
 
     def reload(self):
@@ -70,8 +74,16 @@ class Matcher:
         import django
         django.setup()
         from blocks.models import BlockedDomain, AllowedDomain, Pattern, GravityDomain, AppCategory, AppControl
+        from dns.models import SystemSetting
 
         try:
+            # Read module toggles from SystemSetting
+            settings_dict = {s.key: s.value.strip().lower() for s in SystemSetting.objects.all()}
+            cname_enabled = settings_dict.get('module_cname_uncloaking', 'true') != 'false'
+            canary_enabled = settings_dict.get('module_canary_blocking', 'true') != 'false'
+            dga_enabled = settings_dict.get('module_dga_protection', 'true') != 'false'
+            adblock_enabled = settings_dict.get('module_adblock_engine', 'true') != 'false'
+
             # Clear current state (will be replaced within lock)
             new_exact_blocks = defaultdict(set)
             new_wildcard_blocks = defaultdict(list)
@@ -173,6 +185,10 @@ class Matcher:
                 self.app_blocks = new_app_blocks
                 self.adblock_engine = new_adblock_engine
                 self.gravity = new_gravity
+                self.cname_uncloaking_enabled = cname_enabled
+                self.canary_blocking_enabled = canary_enabled
+                self.dga_protection_enabled = dga_enabled
+                self.adblock_engine_enabled = adblock_enabled
 
             from dns_proxy.cache import get_cache
             get_cache().clear()
