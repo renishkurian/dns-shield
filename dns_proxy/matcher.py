@@ -117,6 +117,9 @@ class Matcher:
                 self.app_blocks = new_app_blocks
                 self.gravity = new_gravity
 
+            from dns_proxy.cache import get_cache
+            get_cache().clear()
+
             logger.info(
                 f"Matcher reloaded: {len(new_exact_blocks)} groups with rules, "
                 f"{len(new_gravity)} gravity domains (compact index)"

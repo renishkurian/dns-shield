@@ -53,6 +53,11 @@ def _normalize_block_domain(value: str, *, allow_regex: bool = False) -> str:
 
     # Regex rules are patterns — only trim whitespace; do not strip URL parts.
     if allow_regex:
+        if '://' in raw:
+            raise serializers.ValidationError(
+                'This pattern will never match — regex rules are matched against the bare '
+                'hostname only (no scheme/path), e.g. use "doubleclick\\.net$" not "https://doubleclick.net/".'
+            )
         return raw
 
     candidate = raw

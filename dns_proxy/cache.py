@@ -23,6 +23,10 @@ class DNSCache:
                     del self._cache[key]
         return None
 
+    def clear(self):
+        with self._lock:
+            self._cache.clear()
+
     def put(self, request: dnslib.DNSRecord, response: dnslib.DNSRecord):
         key = self._make_key(request)
         # Find min TTL in response RRs
