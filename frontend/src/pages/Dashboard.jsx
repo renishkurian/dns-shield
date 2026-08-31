@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import Layout from '../components/Layout'
-import { Activity, Shield, Clock, Percent, TrendingUp, PieChart } from 'lucide-react'
+import { Activity, Shield, Clock, Percent, TrendingUp, PieChart, ShieldCheck, ShieldAlert, ArrowRight, X } from 'lucide-react'
 import DoughnutChart from '../components/DoughnutChart'
 import { Link } from '@inertiajs/react'
 
@@ -155,19 +155,28 @@ LiveFeed.propTypes = { entries: PropTypes.array }
 
 // ─── System status ────────────────────────────────────────────────────────────
 function SystemStatus({ status }) {
+  const isConnected = status?.is_client_connected
   const items = [
     { label: 'DNS Proxy', ok: status?.proxy_running },
     { label: 'Unbound',   ok: status?.unbound },
     { label: 'Redis',     ok: status?.redis },
   ]
   return (
-    <div className="flex gap-4 flex-wrap">
+    <div className="flex items-center gap-3 flex-wrap">
       {items.map(item => (
         <div key={item.label} className="flex items-center gap-1.5 text-xs">
-          <div className={`w-2 h-2 rounded-full ${item.ok ? 'bg-green-500' : 'bg-red-500'}`} />
-          <span className={item.ok ? 'text-slate-400' : 'text-red-400'}>{item.label}</span>
+          <div className={`w-2 h-2 rounded-full ${item.ok ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+          <span className={item.ok ? 'text-slate-400' : 'text-rose-400'}>{item.label}</span>
         </div>
       ))}
+      {status?.client_ip && (
+        <div className="flex items-center gap-1.5 text-xs border-l border-slate-800 pl-3">
+          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse-slow' : 'bg-amber-400'}`} />
+          <span className={isConnected ? 'text-emerald-400 font-medium' : 'text-amber-400 font-medium'}>
+            This Device ({status.client_ip}): {isConnected ? 'Protected' : 'Not Connected'}
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -337,6 +346,7 @@ export default function Dashboard({ user, summary: initialSummary, hourly: initi
   
   // Phase 26 State
   const [range, setRange] = useState('24h')
+  const [bannerDismissed, setBannerDismissed] = useState(false)
   const [stats, setStats] = useState({
     summary: initialSummary,
     hourly: initialHourly,
@@ -420,6 +430,40 @@ export default function Dashboard({ user, summary: initialSummary, hourly: initi
           ))}
         </div>
       </div>
+
+      {/* Unprotected Device Alert Banner */}
+      {!bannerDismissed && systemStatus?.is_client_connected === false && systemStatus?.proxy_running && (
+        <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-950/50 via-slate-900 to-slate-900 border border-amber-500/30 text-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl animate-in fade-in">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+              <ShieldAlert size={20} />
+            </div>
+            <div>
+              <p className="font-semibold text-xs text-white">
+                This Device ({systemStatus?.client_ip || 'Your IP'}) is NOT Protected by DNS Shield
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                DNS queries from this browser are bypassing the shield. Point your device or router DNS to <code className="text-amber-300 font-mono font-semibold">{systemStatus?.server_ip || '192.168.0.50'}</code> to enable filtering.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+            <Link
+              href="/settings/dns"
+              className="px-3 py-1.5 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs hover:bg-amber-400 transition-colors flex items-center gap-1 shadow"
+            >
+              Configure DNS <ArrowRight size={12} />
+            </Link>
+            <button
+              onClick={() => setBannerDismissed(true)}
+              className="p-1.5 rounded-lg text-slate-500 hover:text-white transition-colors"
+              title="Dismiss banner"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

@@ -2053,11 +2053,58 @@ class NetworkScanView(APIView):
 # ─── SYSTEM STATUS ────────────────────────────────────────────────────────────
 
 class SystemStatusView(APIView):
+    """
+    Returns rich system health, DNS proxy status, upstream resolver state,
+    and client device connection diagnostics.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
     def get(self, request):
+        import socket
+        from dns.models import QueryLog, SystemSetting
+        from django.utils import timezone
+        from datetime import timedelta
+        from dns.shield import is_shield_active
+
+        # Extract client IP
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            client_ip = x_forwarded_for.split(',')[0].strip()
+        else:
+            client_ip = request.META.get('REMOTE_ADDR', '127.0.0.1')
+
+        # Detect server LAN IP
+        server_ip = '127.0.0.1'
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8', 80))
+            server_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            pass
+
+        # Check client query history
+        now = timezone.now()
+        last_query = QueryLog.objects.filter(client_ip=client_ip).order_by('-timestamp').first()
+        queries_1h = QueryLog.objects.filter(
+            client_ip=client_ip,
+            timestamp__gte=now - timedelta(hours=1)
+        ).count()
+        queries_24h = QueryLog.objects.filter(
+            client_ip=client_ip,
+            timestamp__gte=now - timedelta(hours=24)
+        ).count()
+
+        # Connected if active in last 2 hours or has recent query
+        is_client_connected = queries_1h > 0 or (
+            last_query is not None and (now - last_query.timestamp).total_seconds() < 7200
+        )
+
         def check_service(name):
             try:
                 r = subprocess.run(['systemctl', 'is-active', name],
-                                   capture_output=True, text=True, timeout=3)
+                                   capture_output=True, text=True, timeout=2)
                 return r.stdout.strip() == 'active'
             except Exception:
                 return False
@@ -2071,11 +2118,141 @@ class SystemStatusView(APIView):
             except Exception:
                 return False
 
+        def check_port_53():
+            try:
+                import dnslib
+                req = dnslib.DNSRecord.question('dns-shield.test', 'A')
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.settimeout(0.5)
+                sock.sendto(req.pack(), ('127.0.0.1', 53))
+                data, _ = sock.recvfrom(512)
+                sock.close()
+                return True
+            except Exception:
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.bind(('127.0.0.1', 53))
+                    s.close()
+                    return False
+                except OSError:
+                    return True
+
+        proxy_listening = check_port_53()
+        unbound_active = check_service('unbound')
+
+        # Total 24h stats
+        since_24h = now - timedelta(hours=24)
+        total_24h = QueryLog.objects.filter(timestamp__gte=since_24h).count()
+        blocked_24h = QueryLog.objects.filter(
+            timestamp__gte=since_24h,
+            status__in=['blocked_pattern', 'blocked_domain', 'blocked_list', 'blocked_ai', 'blocked_client']
+        ).count()
+
         return Response({
-            'proxy_running': True,  # If this endpoint responds, proxy mgmt is up
-            'unbound': check_service('unbound'),
+            'proxy_running': proxy_listening,
+            'unbound': unbound_active,
             'redis': check_redis(),
+            'shield_active': is_shield_active(),
+            'server_ip': server_ip,
+            'client_ip': client_ip,
+            'is_client_connected': is_client_connected,
+            'client_queries_1h': queries_1h,
+            'client_queries_24h': queries_24h,
+            'last_query_time': last_query.timestamp.isoformat() if last_query else None,
+            'last_query_domain': last_query.domain if last_query else None,
+            'last_query_status': last_query.status if last_query else None,
+            'total_queries_24h': total_24h,
+            'blocked_queries_24h': blocked_24h,
         })
+
+
+class SystemDiagnosticsView(APIView):
+    """
+    Runs live DNS resolution tests across Proxy port 53, Upstream Unbound, and blocklist matching.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        import time, socket, dnslib
+        from dns.models import SystemSetting
+
+        results = {}
+
+        # 1. Test Proxy port 53 directly
+        t0 = time.monotonic()
+        try:
+            req = dnslib.DNSRecord.question('google.com', 'A')
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(2.0)
+            sock.sendto(req.pack(), ('127.0.0.1', 53))
+            data, _ = sock.recvfrom(4096)
+            sock.close()
+            resp = dnslib.DNSRecord.parse(data)
+            elapsed = round((time.monotonic() - t0) * 1000, 1)
+            answers = [str(rr.rdata) for rr in resp.rr if rr.rtype == dnslib.QTYPE.A]
+            results['proxy_test'] = {
+                'success': True,
+                'latency_ms': elapsed,
+                'rcode': dnslib.RCODE.get(resp.header.rcode, str(resp.header.rcode)),
+                'answers': answers,
+            }
+        except Exception as e:
+            results['proxy_test'] = {'success': False, 'error': str(e)}
+
+        # 2. Test Blocklist Interception (doubleclick.net)
+        t0 = time.monotonic()
+        try:
+            req = dnslib.DNSRecord.question('doubleclick.net', 'A')
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(2.0)
+            sock.sendto(req.pack(), ('127.0.0.1', 53))
+            data, _ = sock.recvfrom(4096)
+            sock.close()
+            resp = dnslib.DNSRecord.parse(data)
+            elapsed = round((time.monotonic() - t0) * 1000, 1)
+            is_blocked = resp.header.rcode == dnslib.RCODE.NXDOMAIN or len(resp.rr) == 0
+            results['block_test'] = {
+                'success': is_blocked,
+                'domain': 'doubleclick.net',
+                'latency_ms': elapsed,
+                'status': 'blocked' if is_blocked else 'allowed',
+                'rcode': dnslib.RCODE.get(resp.header.rcode, str(resp.header.rcode)),
+            }
+        except Exception as e:
+            results['block_test'] = {'success': False, 'error': str(e)}
+
+        # 3. Test Upstream Unbound (127.0.0.1:5335)
+        up_host = '127.0.0.1'
+        up_port = 5335
+        try:
+            h = SystemSetting.objects.filter(key='upstream_dns_host').first()
+            if h and h.value: up_host = h.value
+            p = SystemSetting.objects.filter(key='upstream_dns_port').first()
+            if p and p.value: up_port = int(p.value)
+        except Exception:
+            pass
+
+        t0 = time.monotonic()
+        try:
+            req = dnslib.DNSRecord.question('cloudflare.com', 'A')
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(2.5)
+            sock.sendto(req.pack(), (up_host, up_port))
+            data, _ = sock.recvfrom(4096)
+            sock.close()
+            resp = dnslib.DNSRecord.parse(data)
+            elapsed = round((time.monotonic() - t0) * 1000, 1)
+            results['upstream_test'] = {
+                'success': True,
+                'latency_ms': elapsed,
+                'rcode': dnslib.RCODE.get(resp.header.rcode, str(resp.header.rcode)),
+                'host': f"{up_host}:{up_port}",
+            }
+        except Exception as e:
+            results['upstream_test'] = {'success': False, 'error': str(e), 'host': f"{up_host}:{up_port}"}
+
+        return Response(results)
 
 
 class SystemReloadProxyView(APIView):

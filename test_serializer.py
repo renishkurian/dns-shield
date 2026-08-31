@@ -87,3 +87,28 @@ class RegexDomainValidationTests(TestCase):
         })
         self.assertTrue(s_good.is_valid(), s_good.errors)
         self.assertEqual(s_good.validated_data['domain'], r'example\.com$')
+
+
+class SystemStatusViewTests(TestCase):
+    def test_system_status_endpoint(self):
+        from rest_framework.test import APIClient
+        client = APIClient()
+        response = client.get('/api/system/status')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn('client_ip', data)
+        self.assertIn('is_client_connected', data)
+        self.assertIn('server_ip', data)
+        self.assertIn('proxy_running', data)
+        self.assertIn('unbound', data)
+        self.assertIn('total_queries_24h', data)
+
+    def test_system_diagnostics_endpoint(self):
+        from rest_framework.test import APIClient
+        client = APIClient()
+        response = client.post('/api/system/diagnostics')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn('proxy_test', data)
+        self.assertIn('block_test', data)
+        self.assertIn('upstream_test', data)

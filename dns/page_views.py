@@ -288,6 +288,12 @@ def _threat_feeds_props(request):
     return {'feeds': AdlistSerializer(feeds, many=True).data}
 
 
+def _settings_dns_props(request):
+    from dns.models import SystemSetting
+    settings = {s.key: s.value for s in SystemSetting.objects.all()}
+    return {'settings': settings}
+
+
 # ─── Wire up all page views ───────────────────────────────────────────────────
 
 blocks_domains_view = inertia_page('blocks/Domains', _blocks_domains_props)(lambda r: None)
@@ -297,7 +303,7 @@ lists_view = inertia_page('Lists', _lists_props)(lambda r: None)
 safesearch_view = inertia_page('SafeSearch', _safesearch_props)(lambda r: None)
 local_dns_view = inertia_page('LocalDNS', _local_dns_props)(lambda r: None)
 clients_view = inertia_page('Clients', _clients_props)(lambda r: None)
-settings_dns_view = inertia_page('settings/DNS')(lambda r: None)
+settings_dns_view = inertia_page('settings/DNS', _settings_dns_props)(lambda r: None)
 settings_network_view = inertia_page('settings/Network')(lambda r: None)
 settings_doh_view = inertia_page('settings/DoH')(lambda r: None)
 settings_backup_view = inertia_page('settings/Backup')(lambda r: None)

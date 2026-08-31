@@ -107,6 +107,7 @@ urlpatterns = [
 
     # System
     path('system/status', views.SystemStatusView.as_view()),
+    path('system/diagnostics', views.SystemDiagnosticsView.as_view()),
     path('system/reload-proxy', views.SystemReloadProxyView.as_view()),
     path('system/unbound/detect', views.UnboundDetectView.as_view()),
     path('system/backup', views.SystemBackupView.as_view()),

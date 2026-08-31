@@ -3,6 +3,7 @@ import PropTypes from 'prop-types'
 import Sidebar from './Sidebar'
 import CommandPalette from './CommandPalette'
 import NotificationCentre from './NotificationCentre'
+import ConnectionStatusBadge from './ConnectionStatusBadge'
 import { Search, Bell } from 'lucide-react'
 import { ToastProvider, useToast } from './Toast'
 
@@ -110,7 +111,7 @@ function MobileAwarLayout({ children, user, currentPath, title, isSearchOpen, se
             >
               <Bell size={18} />
             </button>
-            <StatusDot />
+            <ConnectionStatusBadge />
             
             <NotificationCentre isOpen={isNotifOpen} onClose={() => setIsNotifOpen(false)} />
           </div>
