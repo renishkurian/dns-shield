@@ -354,6 +354,13 @@ def _get_dnssec_status(reply: dnslib.DNSRecord) -> str:
 def _broadcast(domain, client_ip, status, qtype, matched_rule, elapsed, 
                resolved_ip=None, resolved_by='', dnssec_status='N/A', ttl=0):
     """Fire-and-forget broadcast to WebSocket channel layer."""
+    try:
+        from dns_proxy.log_exclusions import is_domain_log_excluded
+        if is_domain_log_excluded(domain):
+            return
+    except Exception:
+        pass
+
     import importlib
     try:
         from channels.layers import get_channel_layer

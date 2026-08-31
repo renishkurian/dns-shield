@@ -1,7 +1,7 @@
 """
 Thread-safe in-memory cache and matcher for Query Log Exclusions.
 Allows high-frequency, noisy domains (e.g. IDE telemetry, local service broadcasts)
-to be excluded from being written to QueryLog without impacting DNS performance.
+to be excluded from being written to QueryLog and WebSocket broadcast without impacting DNS performance.
 """
 import re
 import threading
@@ -15,9 +15,9 @@ class LogExclusionManager:
     _lock = threading.RLock()
 
     def __init__(self):
-        self.exact_exclusions = set()
-        self.wildcard_exclusions = []
-        self.regex_exclusions = []
+        self.exact_exclusions = {}      # clean_domain -> rule_id
+        self.wildcard_exclusions = []   # [(clean_suffix, rule_id), ...]
+        self.regex_exclusions = []      # [(compiled_regex, rule_id), ...]
         self.loaded = False
         self.reload()
 
@@ -25,7 +25,7 @@ class LogExclusionManager:
         """Atomically reload all enabled log exclusion rules from database."""
         try:
             from dns.models import LogExcludedDomain
-            exact = set()
+            exact = {}
             wildcard = []
             regex = []
 
@@ -34,11 +34,11 @@ class LogExclusionManager:
                 if not dom:
                     continue
                 if item.rule_type == 'exact':
-                    exact.add(dom.rstrip('.'))
+                    exact[dom.rstrip('.')] = item.id
                 elif item.rule_type == 'wildcard':
                     clean = dom.lstrip('*').lstrip('.').rstrip('.')
                     if clean:
-                        wildcard.append(clean)
+                        wildcard.append((clean, item.id))
                 elif item.rule_type == 'regex':
                     try:
                         regex.append((re.compile(item.domain, re.IGNORECASE), item.id))
@@ -64,22 +64,46 @@ class LogExclusionManager:
             return False
         clean = domain.strip().lower().rstrip('.')
 
+        matched_id = None
         with self._lock:
             # 1. Exact match
             if clean in self.exact_exclusions:
-                return True
+                matched_id = self.exact_exclusions[clean]
 
             # 2. Wildcard match (e.g. cursor.sh matches cursor.sh and api2.cursor.sh)
-            for w in self.wildcard_exclusions:
-                if clean == w or clean.endswith('.' + w):
-                    return True
+            if not matched_id:
+                for w, rid in self.wildcard_exclusions:
+                    if clean == w or clean.endswith('.' + w):
+                        matched_id = rid
+                        break
 
             # 3. Regex match
-            for r, _ in self.regex_exclusions:
-                if r.search(clean):
-                    return True
+            if not matched_id:
+                for r, rid in self.regex_exclusions:
+                    if r.search(clean):
+                        matched_id = rid
+                        break
+
+        if matched_id is not None:
+            self._bump_hit_async(matched_id)
+            return True
 
         return False
+
+    def _bump_hit_async(self, rule_id: int):
+        """Asynchronously update rule hit counter."""
+        def _do():
+            try:
+                from django.db.models import F
+                from django.utils import timezone
+                from dns.models import LogExcludedDomain
+                LogExcludedDomain.objects.filter(pk=rule_id).update(
+                    hit_count=F('hit_count') + 1,
+                    last_hit=timezone.now()
+                )
+            except Exception:
+                pass
+        threading.Thread(target=_do, daemon=True).start()
 
 
 _manager = None

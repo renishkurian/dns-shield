@@ -74,6 +74,11 @@ class Command(BaseCommand):
                     reload_local_dns()
                 except Exception as exc:
                     self.stderr.write(f'Local DNS reload failed: {exc}')
+                try:
+                    from dns_proxy.log_exclusions import get_log_exclusion_manager
+                    get_log_exclusion_manager().reload()
+                except Exception as exc:
+                    self.stderr.write(f'Log exclusions reload failed: {exc}')
                 last_token = token
 
         proxy.stop_proxy()

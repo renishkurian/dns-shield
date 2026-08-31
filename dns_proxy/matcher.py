@@ -28,10 +28,24 @@ except ImportError:
 logger = logging.getLogger('dns_proxy')
 
 
+_COMMON_TWO_PART_TLDS = {
+    'co.uk', 'org.uk', 'gov.uk', 'ac.uk', 'me.uk', 'ltd.uk', 'plc.uk', 'net.uk',
+    'co.in', 'net.in', 'org.in', 'gen.in', 'firm.in', 'ind.in',
+    'com.au', 'net.au', 'org.au', 'edu.au', 'gov.au',
+    'co.nz', 'net.nz', 'org.nz', 'govt.nz', 'ac.nz',
+    'com.br', 'net.br', 'org.br', 'gov.br', 'edu.br',
+    'co.jp', 'ne.jp', 'or.jp', 'go.jp', 'ac.jp', 'ed.jp',
+    'com.sg', 'edu.sg', 'gov.sg', 'net.sg', 'org.sg',
+    'com.tr', 'edu.tr', 'gov.tr', 'k12.tr', 'net.tr', 'org.tr',
+    'com.mx', 'edu.mx', 'gob.mx', 'net.mx', 'org.mx',
+    'co.za', 'net.za', 'org.za', 'web.za', 'edu.za',
+}
+
+
 def extract_domain_parts(domain: str) -> tuple[str, str, str]:
     """
     Return (subdomain, domain, suffix) using PSL (Public Suffix List).
-    Falls back to simple dot split if tldextract is unavailable.
+    Falls back to intelligent ccTLD split if tldextract is unavailable.
     """
     clean_domain = (domain or '').strip().lower()
     if not clean_domain:
@@ -43,6 +57,10 @@ def extract_domain_parts(domain: str) -> tuple[str, str, str]:
         except Exception:
             pass
     parts = clean_domain.split('.')
+    if len(parts) >= 3:
+        two_part = f"{parts[-2]}.{parts[-1]}"
+        if two_part in _COMMON_TWO_PART_TLDS:
+            return '.'.join(parts[:-3]), parts[-3], two_part
     if len(parts) >= 2:
         return '.'.join(parts[:-2]), parts[-2], parts[-1]
     return '', clean_domain, ''
