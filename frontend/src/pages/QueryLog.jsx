@@ -6,7 +6,8 @@ import {
   Play, Pause, Download, Shield, Activity, 
   CheckCircle, Search, Trash, 
   Lock, Unlock, Database, ArrowRight,
-  X, Sparkles, ChevronLeft, ChevronRight, EyeOff
+  X, Sparkles, ChevronLeft, ChevronRight, EyeOff,
+  Layers, Zap, Radio, ShieldAlert, SlidersHorizontal
 } from 'lucide-react'
 
 const STATUS_LABELS = {
@@ -30,6 +31,12 @@ const RESOLUTION_ICONS = {
   'Blocked (Pattern)': Shield,
   'Blocked (AI)': Sparkles,
   'Blocked (Client)': Shield,
+  'Blocked (CNAME Uncloaking)': Layers,
+  'Blocked (Canary)': Lock,
+  'Blocked (Adblock)': Zap,
+  'Blocked (DNS Rebinding)': ShieldAlert,
+  'Blocked (Rate Limit)': Activity,
+  'ECH Guard': Radio,
 }
 
 function getCsrf() {
@@ -233,11 +240,13 @@ export default function QueryLog({ user, initialQueries = [] }) {
   const initialClient = getQueryParam('client')
   const initialDomain = getQueryParam('domain')
   const initialStatus = getQueryParam('status')
+  const initialModule = getQueryParam('module')
   const [entries, setEntries] = useState(initialQueries)
   const [paused, setPaused] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState(null)
   const [filters, setFilters] = useState({
     status: initialStatus,
+    module: initialModule,
     client: initialClient,
     domain: initialDomain,
   })
@@ -288,6 +297,7 @@ export default function QueryLog({ user, initialQueries = [] }) {
   const loadPage = async (nextPage = 1, nextFilters = filters) => {
     const params = new URLSearchParams()
     if (nextFilters.status) params.set('status', nextFilters.status)
+    if (nextFilters.module) params.set('module', nextFilters.module)
     if (nextFilters.client) params.set('client', nextFilters.client)
     if (nextFilters.domain) params.set('domain', nextFilters.domain)
     params.set('page', String(nextPage))
@@ -328,7 +338,7 @@ export default function QueryLog({ user, initialQueries = [] }) {
   useEffect(() => {
     loadPage(1, filters)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.status, filters.client, filters.domain])
+  }, [filters.status, filters.module, filters.client, filters.domain])
 
   useEffect(() => {
     const connect = () => {
@@ -344,6 +354,18 @@ export default function QueryLog({ user, initialQueries = [] }) {
           if (!BLOCKED_STATUSES.has(data.status) && !data.status?.startsWith('blocked')) return
         } else if (f.status && data.status !== f.status) {
           return
+        }
+        if (f.module) {
+          // Live WS filtering for module
+          const rb = data.resolved_by || ''
+          const mr = data.matched_rule || ''
+          if (f.module === 'cname' && !rb.includes('CNAME') && !mr.startsWith('CNAME')) return
+          if (f.module === 'canary' && !rb.includes('Canary') && !mr.startsWith('Canary')) return
+          if (f.module === 'dga' && data.status !== 'blocked_ai' && !rb.includes('AI')) return
+          if (f.module === 'adblock' && !rb.includes('Adblock') && !mr.startsWith('Adblock:')) return
+          if (f.module === 'rebinding' && !rb.includes('DNS Rebinding') && !mr.includes('DNS Rebinding')) return
+          if ((f.module === 'ech' || f.module === 'https_ech') && !rb.includes('ECH Guard')) return
+          if (f.module === 'rate_limit' && !rb.includes('Rate Limit') && !mr.includes('Rate Limit')) return
         }
         if (f.client && !data.client_ip?.includes(f.client)) return
         if (f.domain && !data.domain?.includes(f.domain)) return
@@ -432,6 +454,40 @@ export default function QueryLog({ user, initialQueries = [] }) {
             <Download size={14} /> CSV
           </button>
         </div>
+      </div>
+
+      {/* ─── MODULE QUICK-FILTER CHIPS ─────────────────────────────────────── */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-3 scrollbar-none text-xs">
+        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
+          <SlidersHorizontal size={12} /> Modules:
+        </span>
+        {[
+          { key: '', label: 'All Modules' },
+          { key: 'cname', label: 'CNAME Uncloaked', icon: Layers, activeCls: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40' },
+          { key: 'canary', label: 'DoH Canary', icon: Lock, activeCls: 'bg-amber-500/20 text-amber-300 border-amber-500/40' },
+          { key: 'dga', label: 'DGA / AI', icon: Sparkles, activeCls: 'bg-sky-500/20 text-sky-300 border-sky-500/40' },
+          { key: 'adblock', label: 'Adblock Engine', icon: Zap, activeCls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' },
+          { key: 'rebinding', label: 'DNS Rebinding', icon: ShieldAlert, activeCls: 'bg-rose-500/20 text-rose-300 border-rose-500/40' },
+          { key: 'ech', label: 'ECH Guard', icon: Radio, activeCls: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' },
+          { key: 'rate_limit', label: 'Rate Limit', icon: Activity, activeCls: 'bg-purple-500/20 text-purple-300 border-purple-500/40' },
+        ].map(chip => {
+          const Icon = chip.icon
+          const isSelected = (filters.module || '') === chip.key
+          return (
+            <button
+              key={chip.key}
+              onClick={() => setFilters(f => ({ ...f, module: chip.key }))}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors shrink-0 ${
+                isSelected
+                  ? chip.activeCls || 'bg-brand-500/20 text-brand-300 border-brand-500/40 font-semibold'
+                  : 'bg-slate-900/80 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-slate-200'
+              }`}
+            >
+              {Icon && <Icon size={12} />}
+              {chip.label}
+            </button>
+          )
+        })}
       </div>
 
       {/* Main content + inspector */}

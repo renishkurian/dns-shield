@@ -149,6 +149,30 @@ export default function DNSSettings({ user, settings: initial = {} }) {
       icon: Zap,
       color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
     },
+    {
+      key: 'module_rebinding_protection',
+      countKey: 'rebinding',
+      name: 'DNS Rebinding & Private IP Leak Guard',
+      desc: 'Intercepts and drops public internet DNS queries resolving to RFC 1918 private IPv4 (10/8, 172.16/12, 192.168/16), loopback (127/8), or link-local addresses.',
+      icon: ShieldAlert,
+      color: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+    },
+    {
+      key: 'module_https_ech_protection',
+      countKey: 'https_ech',
+      name: 'HTTPS Record (Type 65) & ECH Evasion Guard',
+      desc: 'Filters Type 65 HTTPS/SVCB DNS discovery parameters to prevent modern browsers from using Encrypted Client Hello (ECH) to circumvent local ad and malware filtering.',
+      icon: Radio,
+      color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20',
+    },
+    {
+      key: 'module_rate_limiting',
+      countKey: 'rate_limit',
+      name: 'Per-Client Query Rate Limiter & Flood Guard',
+      desc: 'Limits abnormal query spikes (>300 queries per 5s) per client IP to safeguard the DNS proxy against DNS amplification, recursive loops, and rogue IoT query floods.',
+      icon: Activity,
+      color: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+    },
   ]
 
   const toggleModule = (key) => {
@@ -408,6 +432,36 @@ export default function DNSSettings({ user, settings: initial = {} }) {
                       Apple &amp; Firefox Canaries Intercepted
                     </span>
                     <span className="text-slate-500 font-mono">NXDOMAIN</span>
+                  </div>
+                )
+              } else if (m.key === 'module_rebinding_protection') {
+                runtimeTelemetry = (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-[10px]">
+                    <span className="text-rose-400 font-medium flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                      RFC 1918 &amp; Loopback Leaks Blocked
+                    </span>
+                    <span className="text-slate-500 font-mono">10/8, 172.16/12, 192.168/16</span>
+                  </div>
+                )
+              } else if (m.key === 'module_https_ech_protection') {
+                runtimeTelemetry = (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-[10px]">
+                    <span className="text-cyan-400 font-medium flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                      Type 65 HTTPS / SVCB Discovery Filter
+                    </span>
+                    <span className="text-slate-500 font-mono">Anti-ECH</span>
+                  </div>
+                )
+              } else if (m.key === 'module_rate_limiting') {
+                runtimeTelemetry = (
+                  <div className="mt-3 pt-2.5 border-t border-slate-800 flex items-center justify-between text-[10px]">
+                    <span className="text-purple-400 font-medium flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                      Sliding Window &gt;300/5s Rate Limiter
+                    </span>
+                    <span className="text-slate-500 font-mono">REFUSED</span>
                   </div>
                 )
               }

@@ -216,28 +216,89 @@ class ModernAdblockAndUncloakingTests(TestCase):
         SystemSetting.objects.update_or_create(key='module_canary_blocking', defaults={'value': 'false'})
         SystemSetting.objects.update_or_create(key='module_dga_protection', defaults={'value': 'false'})
         SystemSetting.objects.update_or_create(key='module_adblock_engine', defaults={'value': 'false'})
+        SystemSetting.objects.update_or_create(key='module_rebinding_protection', defaults={'value': 'false'})
+        SystemSetting.objects.update_or_create(key='module_https_ech_protection', defaults={'value': 'false'})
+        SystemSetting.objects.update_or_create(key='module_rate_limiting', defaults={'value': 'false'})
 
         m = Matcher()
         self.assertFalse(m.cname_uncloaking_enabled)
         self.assertFalse(m.canary_blocking_enabled)
         self.assertFalse(m.dga_protection_enabled)
         self.assertFalse(m.adblock_engine_enabled)
+        self.assertFalse(m.rebinding_protection_enabled)
+        self.assertFalse(m.https_ech_protection_enabled)
+        self.assertFalse(m.rate_limiting_enabled)
 
         # Enable them back
         SystemSetting.objects.update_or_create(key='module_cname_uncloaking', defaults={'value': 'true'})
         SystemSetting.objects.update_or_create(key='module_canary_blocking', defaults={'value': 'true'})
+        SystemSetting.objects.update_or_create(key='module_rebinding_protection', defaults={'value': 'true'})
+        SystemSetting.objects.update_or_create(key='module_https_ech_protection', defaults={'value': 'true'})
+        SystemSetting.objects.update_or_create(key='module_rate_limiting', defaults={'value': 'true'})
         m.reload()
         self.assertTrue(m.cname_uncloaking_enabled)
         self.assertTrue(m.canary_blocking_enabled)
+        self.assertTrue(m.rebinding_protection_enabled)
+        self.assertTrue(m.https_ech_protection_enabled)
+        self.assertTrue(m.rate_limiting_enabled)
 
         # Test module hit increment and counts info
         m.increment_module_hit('cname')
         m.increment_module_hit('cname')
         m.increment_module_hit('canary')
+        m.increment_module_hit('rebinding')
+        m.increment_module_hit('https_ech')
+        m.increment_module_hit('rate_limit')
         info = m.get_modules_info()
         self.assertEqual(info['counts']['cname']['total'], 2)
         self.assertEqual(info['counts']['canary']['total'], 1)
         self.assertEqual(info['counts']['dga']['total'], 0)
+        self.assertEqual(info['counts']['rebinding']['total'], 1)
+        self.assertEqual(info['counts']['https_ech']['total'], 1)
+        self.assertEqual(info['counts']['rate_limit']['total'], 1)
+
+    def test_query_log_module_filter(self):
+        from rest_framework.test import APIClient
+        from django.contrib.auth.models import User
+        from users.models import UserProfile
+        from dns.models import QueryLog
+
+        user = User.objects.create_user(username='loguser', password='password123', is_staff=True)
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        profile.role = 'admin'
+        profile.save()
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        QueryLog.objects.create(
+            domain='cname-ad.test',
+            client_ip='192.168.1.10',
+            status='blocked_list',
+            query_type='A',
+            matched_rule='CNAME (Gravity) -> tracker.com',
+            resolved_by='Blocked (CNAME Uncloaking)'
+        )
+        QueryLog.objects.create(
+            domain='malicious-rebinding.test',
+            client_ip='192.168.1.10',
+            status='blocked_domain',
+            query_type='A',
+            matched_rule='DNS Rebinding: Private IP (192.168.1.1)',
+            resolved_by='Blocked (DNS Rebinding)'
+        )
+
+        # Filter by cname
+        res_cname = client.get('/api/queries?module=cname')
+        self.assertEqual(res_cname.status_code, 200)
+        self.assertEqual(res_cname.json()['count'], 1)
+        self.assertEqual(res_cname.json()['results'][0]['domain'], 'cname-ad.test')
+
+        # Filter by rebinding
+        res_rebinding = client.get('/api/queries?module=rebinding')
+        self.assertEqual(res_rebinding.status_code, 200)
+        self.assertEqual(res_rebinding.json()['count'], 1)
+        self.assertEqual(res_rebinding.json()['results'][0]['domain'], 'malicious-rebinding.test')
 
 
 

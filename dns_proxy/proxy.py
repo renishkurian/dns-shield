@@ -6,6 +6,7 @@ import time
 import threading
 import logging
 import asyncio
+import ipaddress
 import dnslib
 from dnslib.server import DNSServer, BaseResolver, DNSHandler
 
@@ -17,6 +18,24 @@ CANARY_DOMAINS = {
     'mask.icloud.com',              # Apple iCloud Private Relay canary
     'mask-h2.icloud.com',           # Apple iCloud Private Relay canary (HTTP/2)
 }
+
+_rate_limiter = {}
+_rate_limiter_lock = threading.Lock()
+
+
+def _check_rate_limit(client_ip: str, limit: int = 300, window_sec: float = 5.0) -> bool:
+    """Return True if request is allowed, False if client rate limit exceeded."""
+    now = time.monotonic()
+    with _rate_limiter_lock:
+        timestamps = _rate_limiter.get(client_ip, [])
+        cutoff = now - window_sec
+        timestamps = [t for t in timestamps if t > cutoff]
+        if len(timestamps) >= limit:
+            _rate_limiter[client_ip] = timestamps
+            return False
+        timestamps.append(now)
+        _rate_limiter[client_ip] = timestamps
+        return True
 
 
 class DNSShieldResolver(BaseResolver):
@@ -31,9 +50,26 @@ class DNSShieldResolver(BaseResolver):
 
         start = time.monotonic()
         domain = str(request.q.qname).rstrip('.')
-        qtype = dnslib.QTYPE[request.q.qtype]
+        qtype = dnslib.QTYPE.get(request.q.qtype, str(request.q.qtype))
         client_ip = handler.client_address[0]
         up_host, up_port = _upstream_for_client(client_ip, self.upstream_host, self.upstream_port)
+
+        # 0.00 Rate Limit Guard — flood & amplification attack protection
+        if getattr(self.matcher, 'rate_limiting_enabled', True):
+            if not _check_rate_limit(client_ip):
+                if hasattr(self.matcher, 'increment_module_hit'):
+                    self.matcher.increment_module_hit('rate_limit')
+                elapsed = (time.monotonic() - start) * 1000
+                dns_logger.log_query(domain, client_ip, 'blocked_client', qtype,
+                                     matched_rule='Rate Limit Exceeded (>300 queries/5s)',
+                                     response_time_ms=elapsed,
+                                     resolved_by='Blocked (Rate Limit)')
+                _broadcast(domain, client_ip, 'blocked_client', qtype,
+                           'Rate Limit Exceeded (>300 queries/5s)', elapsed,
+                           resolved_by='Blocked (Rate Limit)')
+                reply = request.reply()
+                reply.header.rcode = dnslib.RCODE.REFUSED
+                return reply
 
         # 0. Check Shield Status (global)
         from dns.shield import is_shield_active
@@ -232,6 +268,50 @@ class DNSShieldResolver(BaseResolver):
                         _broadcast(domain, client_ip, 'blocked_list', qtype, reason, elapsed,
                                    resolved_by='Blocked (CNAME Uncloaking)', ttl=0)
                         return nxdomain()
+
+        # 5.2 DNS Rebinding Protection — block public domains resolving to RFC1918 / loopback / link-local addresses
+        if getattr(self.matcher, 'rebinding_protection_enabled', True) and reply.header.rcode == dnslib.RCODE.NOERROR and reply.rr:
+            has_private_ip = False
+            leaked_ip = ''
+            for rr in reply.rr:
+                if rr.rtype in (dnslib.QTYPE.A, dnslib.QTYPE.AAAA):
+                    ip_str = str(rr.rdata).strip()
+                    try:
+                        ip_obj = ipaddress.ip_address(ip_str)
+                        if (ip_obj.is_private or ip_obj.is_loopback or 
+                            ip_obj.is_link_local or ip_obj.is_reserved or 
+                            ip_obj.is_unspecified):
+                            has_private_ip = True
+                            leaked_ip = ip_str
+                            break
+                    except ValueError:
+                        pass
+
+            if has_private_ip:
+                if hasattr(self.matcher, 'increment_module_hit'):
+                    self.matcher.increment_module_hit('rebinding')
+                dns_logger.log_query(domain, client_ip, 'blocked_domain', qtype,
+                                     matched_rule=f"DNS Rebinding: Private IP ({leaked_ip})",
+                                     response_time_ms=elapsed,
+                                     resolved_by='Blocked (DNS Rebinding)', ttl=0)
+                _broadcast(domain, client_ip, 'blocked_domain', qtype,
+                           f"DNS Rebinding: Private IP ({leaked_ip})", elapsed,
+                           resolved_by='Blocked (DNS Rebinding)', ttl=0)
+                return nxdomain()
+
+        # 5.3 HTTPS (Type 65) / SVCB (Type 64) ECH Evasion Protection
+        is_https_svcb = qtype in ('HTTPS', 'SVCB') or getattr(request.q, 'qtype', 0) in (64, 65)
+        if is_https_svcb and getattr(self.matcher, 'https_ech_protection_enabled', True):
+            if hasattr(self.matcher, 'increment_module_hit'):
+                self.matcher.increment_module_hit('https_ech')
+            dns_logger.log_query(domain, client_ip, 'allowed', qtype,
+                                 response_time_ms=elapsed, resolved_ip=_extract_ip(reply),
+                                 resolved_by=f"{up_host} (ECH Guard)", dnssec_status=_get_dnssec_status(reply),
+                                 ttl=_get_min_ttl(reply))
+            _broadcast(domain, client_ip, 'allowed', qtype, 'ECH Guard', elapsed,
+                       resolved_ip=_extract_ip(reply), resolved_by=f"{up_host} (ECH Guard)",
+                       dnssec_status=_get_dnssec_status(reply), ttl=_get_min_ttl(reply))
+            return reply
 
         status = 'nxdomain' if reply.header.rcode == dnslib.RCODE.NXDOMAIN else 'allowed'
         resolved_ip = _extract_ip(reply)

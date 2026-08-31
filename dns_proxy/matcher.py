@@ -86,6 +86,9 @@ class Matcher:
         self.canary_blocking_enabled = True
         self.dga_protection_enabled = True
         self.adblock_engine_enabled = True
+        self.rebinding_protection_enabled = True
+        self.https_ech_protection_enabled = True
+        self.rate_limiting_enabled = True
         self.module_hit_counts = defaultdict(int)
         self.reload()
 
@@ -103,6 +106,9 @@ class Matcher:
             canary_enabled = settings_dict.get('module_canary_blocking', 'true') != 'false'
             dga_enabled = settings_dict.get('module_dga_protection', 'true') != 'false'
             adblock_enabled = settings_dict.get('module_adblock_engine', 'true') != 'false'
+            rebinding_enabled = settings_dict.get('module_rebinding_protection', 'true') != 'false'
+            https_ech_enabled = settings_dict.get('module_https_ech_protection', 'true') != 'false'
+            rate_limit_enabled = settings_dict.get('module_rate_limiting', 'true') != 'false'
 
             # Clear current state (will be replaced within lock)
             new_exact_blocks = defaultdict(set)
@@ -212,6 +218,9 @@ class Matcher:
                 self.canary_blocking_enabled = canary_enabled
                 self.dga_protection_enabled = dga_enabled
                 self.adblock_engine_enabled = adblock_enabled
+                self.rebinding_protection_enabled = rebinding_enabled
+                self.https_ech_protection_enabled = https_ech_enabled
+                self.rate_limiting_enabled = rate_limit_enabled
 
             from dns_proxy.cache import get_cache
             get_cache().clear()
@@ -370,6 +379,9 @@ class Matcher:
             canary_total = max(db_counts.get('canary_total', 0), self.module_hit_counts['canary'])
             dga_total = max(db_counts.get('dga_total', 0), self.module_hit_counts['dga'])
             adblock_total = max(db_counts.get('adblock_total', 0), self.module_hit_counts['adblock'])
+            rebinding_total = max(db_counts.get('rebinding_total', 0), self.module_hit_counts['rebinding'])
+            https_ech_total = max(db_counts.get('https_ech_total', 0), self.module_hit_counts['https_ech'])
+            rate_limit_total = max(db_counts.get('rate_limit_total', 0), self.module_hit_counts['rate_limit'])
 
             return {
                 'adblock_installed': adblock is not None,
@@ -381,6 +393,9 @@ class Matcher:
                 'canary_blocking_enabled': self.canary_blocking_enabled,
                 'dga_protection_enabled': self.dga_protection_enabled,
                 'adblock_engine_enabled': self.adblock_engine_enabled,
+                'rebinding_protection_enabled': self.rebinding_protection_enabled,
+                'https_ech_protection_enabled': self.https_ech_protection_enabled,
+                'rate_limiting_enabled': self.rate_limiting_enabled,
                 'counts': {
                     'cname': {
                         'total': cname_total,
@@ -397,6 +412,18 @@ class Matcher:
                     'adblock': {
                         'total': adblock_total,
                         '24h': db_counts.get('adblock_24h', 0),
+                    },
+                    'rebinding': {
+                        'total': rebinding_total,
+                        '24h': db_counts.get('rebinding_24h', 0),
+                    },
+                    'https_ech': {
+                        'total': https_ech_total,
+                        '24h': db_counts.get('https_ech_24h', 0),
+                    },
+                    'rate_limit': {
+                        'total': rate_limit_total,
+                        '24h': db_counts.get('rate_limit_24h', 0),
                     },
                 }
             }

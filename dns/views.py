@@ -442,6 +442,7 @@ class QueryLogListView(APIView):
     def get(self, request):
         qs = QueryLog.objects.all()
         status_filter = request.query_params.get('status')
+        module_filter = request.query_params.get('module')
         client = request.query_params.get('client')
         domain = request.query_params.get('domain')
         from_dt = request.query_params.get('from')
@@ -453,6 +454,22 @@ class QueryLogListView(APIView):
             ])
         elif status_filter:
             qs = qs.filter(status=status_filter)
+
+        if module_filter == 'cname':
+            qs = qs.filter(Q(resolved_by__icontains='CNAME Uncloaking') | Q(matched_rule__startswith='CNAME'))
+        elif module_filter == 'canary':
+            qs = qs.filter(Q(resolved_by__icontains='Canary') | Q(matched_rule__startswith='Canary'))
+        elif module_filter == 'dga':
+            qs = qs.filter(Q(status='blocked_ai') | Q(resolved_by__icontains='Blocked (AI)'))
+        elif module_filter == 'adblock':
+            qs = qs.filter(Q(resolved_by__icontains='Adblock') | Q(matched_rule__startswith='Adblock:'))
+        elif module_filter == 'rebinding':
+            qs = qs.filter(Q(resolved_by__icontains='DNS Rebinding') | Q(matched_rule__icontains='DNS Rebinding'))
+        elif module_filter in ('https_ech', 'ech'):
+            qs = qs.filter(Q(resolved_by__icontains='ECH Guard') | Q(matched_rule__icontains='ECH Guard'))
+        elif module_filter == 'rate_limit':
+            qs = qs.filter(Q(resolved_by__icontains='Rate Limit') | Q(matched_rule__icontains='Rate Limit'))
+
         if client:
             qs = qs.filter(client_ip__icontains=client)
         if domain:
@@ -2155,10 +2172,16 @@ class SystemStatusView(APIView):
                 canary_total=Count('id', filter=Q(resolved_by__icontains='Canary') | Q(matched_rule__startswith='Canary')),
                 dga_total=Count('id', filter=Q(status='blocked_ai') | Q(resolved_by__icontains='Blocked (AI)')),
                 adblock_total=Count('id', filter=Q(resolved_by__icontains='Adblock') | Q(matched_rule__startswith='Adblock:')),
+                rebinding_total=Count('id', filter=Q(resolved_by__icontains='DNS Rebinding') | Q(matched_rule__icontains='DNS Rebinding')),
+                https_ech_total=Count('id', filter=Q(resolved_by__icontains='ECH Guard') | Q(matched_rule__icontains='ECH Guard')),
+                rate_limit_total=Count('id', filter=Q(resolved_by__icontains='Rate Limit') | Q(matched_rule__icontains='Rate Limit')),
                 cname_24h=Count('id', filter=(Q(resolved_by__icontains='CNAME Uncloaking') | Q(matched_rule__startswith='CNAME')) & Q(timestamp__gte=since_24h)),
                 canary_24h=Count('id', filter=(Q(resolved_by__icontains='Canary') | Q(matched_rule__startswith='Canary')) & Q(timestamp__gte=since_24h)),
                 dga_24h=Count('id', filter=(Q(status='blocked_ai') | Q(resolved_by__icontains='Blocked (AI)')) & Q(timestamp__gte=since_24h)),
                 adblock_24h=Count('id', filter=(Q(resolved_by__icontains='Adblock') | Q(matched_rule__startswith='Adblock:')) & Q(timestamp__gte=since_24h)),
+                rebinding_24h=Count('id', filter=(Q(resolved_by__icontains='DNS Rebinding') | Q(matched_rule__icontains='DNS Rebinding')) & Q(timestamp__gte=since_24h)),
+                https_ech_24h=Count('id', filter=(Q(resolved_by__icontains='ECH Guard') | Q(matched_rule__icontains='ECH Guard')) & Q(timestamp__gte=since_24h)),
+                rate_limit_24h=Count('id', filter=(Q(resolved_by__icontains='Rate Limit') | Q(matched_rule__icontains='Rate Limit')) & Q(timestamp__gte=since_24h)),
             )
             modules_info = get_matcher().get_modules_info(db_counts=db_counts)
         except Exception:
@@ -2172,11 +2195,17 @@ class SystemStatusView(APIView):
                 'canary_blocking_enabled': True,
                 'dga_protection_enabled': True,
                 'adblock_engine_enabled': True,
+                'rebinding_protection_enabled': True,
+                'https_ech_protection_enabled': True,
+                'rate_limiting_enabled': True,
                 'counts': {
                     'cname': {'total': 0, '24h': 0},
                     'canary': {'total': 0, '24h': 0},
                     'dga': {'total': 0, '24h': 0},
                     'adblock': {'total': 0, '24h': 0},
+                    'rebinding': {'total': 0, '24h': 0},
+                    'https_ech': {'total': 0, '24h': 0},
+                    'rate_limit': {'total': 0, '24h': 0},
                 }
             }
 

@@ -26,6 +26,9 @@ DEFAULTS = {
     'module_canary_blocking': ('true', 'Block DoH and iCloud Private Relay canary domains to force local proxy usage'),
     'module_dga_protection': ('true', 'Enable PSL-aware Shannon entropy DGA & zero-day tracker protection'),
     'module_adblock_engine': ('true', 'Enable Brave Rust native adblock engine matching'),
+    'module_rebinding_protection': ('true', 'Block public domains resolving to private/loopback RFC1918 IPs'),
+    'module_https_ech_protection': ('true', 'Filter HTTPS/SVCB type 65 records to prevent ECH filter evasion'),
+    'module_rate_limiting': ('true', 'Enable per-client query rate limiting against flood/amplification attacks'),
     'module_log_exclusions': ('true', 'Enable Query Log exclusions for noisy domains'),
 }
 
