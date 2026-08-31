@@ -207,4 +207,28 @@ class ModernAdblockAndUncloakingTests(TestCase):
             targets = resolve_cnames('tracker.example.com')
             self.assertEqual(targets, ['adnetwork.criteo.com'])
 
+    def test_module_toggles_in_matcher(self):
+        from dns.models import SystemSetting
+        from dns_proxy.matcher import Matcher
+
+        # Disable all modules
+        SystemSetting.objects.update_or_create(key='module_cname_uncloaking', defaults={'value': 'false'})
+        SystemSetting.objects.update_or_create(key='module_canary_blocking', defaults={'value': 'false'})
+        SystemSetting.objects.update_or_create(key='module_dga_protection', defaults={'value': 'false'})
+        SystemSetting.objects.update_or_create(key='module_adblock_engine', defaults={'value': 'false'})
+
+        m = Matcher()
+        self.assertFalse(m.cname_uncloaking_enabled)
+        self.assertFalse(m.canary_blocking_enabled)
+        self.assertFalse(m.dga_protection_enabled)
+        self.assertFalse(m.adblock_engine_enabled)
+
+        # Enable them back
+        SystemSetting.objects.update_or_create(key='module_cname_uncloaking', defaults={'value': 'true'})
+        SystemSetting.objects.update_or_create(key='module_canary_blocking', defaults={'value': 'true'})
+        m.reload()
+        self.assertTrue(m.cname_uncloaking_enabled)
+        self.assertTrue(m.canary_blocking_enabled)
+
+
 

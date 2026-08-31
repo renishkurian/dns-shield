@@ -4,7 +4,7 @@ import Layout from '../../components/Layout'
 import {
   Globe, Save, RefreshCw, CheckCircle, ShieldCheck, ShieldAlert,
   Wifi, Activity, CheckCircle2, XCircle, AlertTriangle, ArrowRight,
-  Server, Cpu, Database, Radio
+  Server, Cpu, Database, Radio, Zap, Layers, Lock, Sparkles
 } from 'lucide-react'
 import { Link } from '@inertiajs/react'
 import { useAlert } from '../../components/Toast'
@@ -107,6 +107,44 @@ export default function DNSSettings({ user, settings: initial = {} }) {
 
   const isConnected = status?.is_client_connected
   const isProxyUp = status?.proxy_running
+
+  const modules = [
+    {
+      key: 'module_cname_uncloaking',
+      name: 'CNAME Uncloaking (1st-Party De-cloaker)',
+      desc: 'Inspects canonical CNAME aliases returned by upstream resolvers to catch third-party ad networks and trackers disguised behind first-party subdomains (e.g., Criteo, Branch, Adobe Target).',
+      icon: Layers,
+      color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+    },
+    {
+      key: 'module_canary_blocking',
+      name: 'DoH & iCloud Private Relay Canary Interceptor',
+      desc: 'Intercepts mask.icloud.com and use-application-dns.net to prevent Apple devices and Firefox from silently bypassing local DNS proxy filtering.',
+      icon: Lock,
+      color: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    },
+    {
+      key: 'module_dga_protection',
+      name: 'PSL-Aware DGA & Entropy Heuristic',
+      desc: 'Uses Mozilla Public Suffix List (PSL) extraction and Shannon entropy analysis to detect randomized tracking subdomains and algorithmically generated malware beacons.',
+      icon: Sparkles,
+      color: 'text-sky-400 bg-sky-500/10 border-sky-500/20',
+    },
+    {
+      key: 'module_adblock_engine',
+      name: 'Native Brave Rust Adblock Engine',
+      desc: 'Executes high-throughput compiled Rust adblock engine rules for advanced Adblock Plus / uBlock Origin rule syntax and fast network pattern matching.',
+      icon: Zap,
+      color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+    },
+  ]
+
+  const toggleModule = (key) => {
+    if (!isAdmin) return
+    const currentVal = settings[key] ?? 'true'
+    const newVal = currentVal === 'false' ? 'true' : 'false'
+    setSettings(s => ({ ...s, [key]: newVal }))
+  }
 
   const fields = [
     { 
@@ -275,6 +313,82 @@ export default function DNSSettings({ user, settings: initial = {} }) {
               <Link href="/settings/doh" className="text-amber-400 hover:text-white shrink-0 font-semibold flex items-center gap-1 underline underline-offset-2">
                 Setup Guide <ArrowRight size={12} />
               </Link>
+            </div>
+          )}
+        </div>
+
+        {/* ─── ADVANCED BLOCKING & INSPECTION MODULES ────────────────────────── */}
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-semibold text-white">Advanced Inspection & Protection Modules</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Enable or disable deep inspection heuristics, anti-evasion safeguards, and specialized adblocking engines.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-3.5">
+            {modules.map(m => {
+              const Icon = m.icon
+              const isEnabled = (settings[m.key] ?? 'true') !== 'false'
+              return (
+                <div 
+                  key={m.key} 
+                  className={`p-4 rounded-xl border transition-all flex flex-col justify-between ${
+                    isEnabled 
+                      ? 'bg-slate-900/90 border-slate-700/70 shadow-sm' 
+                      : 'bg-slate-950/40 border-slate-800/60 opacity-60'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3 mb-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`p-2 rounded-lg border ${m.color}`}>
+                        <Icon size={16} />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-white leading-snug">{m.name}</h4>
+                        <span className={`inline-block px-1.5 py-0.2 text-[9px] font-bold rounded mt-0.5 ${
+                          isEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'
+                        }`}>
+                          {isEnabled ? 'ENABLED' : 'DISABLED'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => toggleModule(m.key)}
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          isEnabled ? 'bg-brand-500' : 'bg-slate-700'
+                        }`}
+                        aria-pressed={isEnabled}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                            isEnabled ? 'translate-x-4' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
+                    {m.desc}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+
+          {isAdmin && (
+            <div className="flex gap-3 mt-5 pt-4 border-t border-slate-800/80">
+              <button onClick={save} className="btn-primary">
+                <Save size={14} />
+                {saved ? 'Saved!' : 'Save Module States'}
+              </button>
             </div>
           )}
         </div>

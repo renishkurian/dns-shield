@@ -1041,6 +1041,7 @@ class SettingsView(APIView):
     def patch(self, request):
         for key, value in request.data.items():
             SystemSetting.objects.update_or_create(key=key, defaults={'value': str(value)})
+        _reload_matcher()
         return Response({'ok': True})
 
 
