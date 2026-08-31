@@ -2123,15 +2123,13 @@ class SystemStatusView(APIView):
 
         def check_port_53():
             try:
-                # Check if port 53 UDP socket is bound/open without sending synthetic DNS queries to logs
+                # Check if port 53 UDP socket is bound/open without sending synthetic DNS queries
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 try:
-                    # If bind succeeds, nothing was listening on port 53 (proxy is down)
                     sock.bind(('127.0.0.1', 53))
                     sock.close()
                     return False
                 except OSError:
-                    # Port 53 is occupied and listening (proxy is up)
                     sock.close()
                     return True
             except Exception:
