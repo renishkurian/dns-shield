@@ -7,7 +7,8 @@ import {
   CheckCircle, Search, Trash, 
   Lock, Unlock, Database, ArrowRight,
   X, Sparkles, ChevronLeft, ChevronRight, EyeOff,
-  Layers, Zap, Radio, ShieldAlert, SlidersHorizontal
+  Layers, Zap, Radio, ShieldAlert, SlidersHorizontal,
+  Copy, Filter, ExternalLink, Info
 } from 'lucide-react'
 
 const STATUS_LABELS = {
@@ -235,6 +236,101 @@ function getQueryParam(name) {
   }
 }
 
+function RowContextMenu({ x, y, entry, onClose, onAction }) {
+  const menuRef = useRef(null)
+  const [pos, setPos] = useState({ x, y })
+
+  useEffect(() => {
+    const el = menuRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const pad = 8
+    let nextX = x
+    let nextY = y
+    if (x + rect.width > window.innerWidth - pad) {
+      nextX = Math.max(pad, window.innerWidth - rect.width - pad)
+    }
+    if (y + rect.height > window.innerHeight - pad) {
+      nextY = Math.max(pad, window.innerHeight - rect.height - pad)
+    }
+    setPos({ x: nextX, y: nextY })
+  }, [x, y])
+
+  useEffect(() => {
+    const close = () => onClose()
+    const onKey = (ev) => { if (ev.key === 'Escape') close() }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [onClose])
+
+  const items = [
+    { key: 'inspect', label: 'Inspect Query', icon: Info },
+    { sep: true },
+    { key: 'block', label: 'Block Domain', icon: Shield, danger: true },
+    { key: 'allow', label: 'Allow Domain', icon: CheckCircle, success: true },
+    { key: 'exclude', label: 'Exclude from Query Log', icon: EyeOff, warn: true },
+    { sep: true },
+    { key: 'filter_domain', label: 'Filter by Domain', icon: Filter },
+    { key: 'filter_client', label: 'Filter by Client IP', icon: Filter },
+    { sep: true },
+    { key: 'analytics', label: 'View Domain Analytics', icon: Activity },
+    { key: 'copy_domain', label: 'Copy Domain', icon: Copy },
+    { key: 'copy_client', label: 'Copy Client IP', icon: Copy },
+  ]
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} onContextMenu={(ev) => { ev.preventDefault(); onClose() }} />
+      <div
+        ref={menuRef}
+        className="fixed z-50 min-w-[210px] py-1.5 rounded-xl border border-slate-700/80 bg-slate-900/95 backdrop-blur-md shadow-2xl shadow-black/40 animate-fade-in"
+        style={{ left: pos.x, top: pos.y }}
+        onContextMenu={(ev) => ev.preventDefault()}
+      >
+        <div className="px-3 py-2 border-b border-slate-800/80 mb-1">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Query Actions</p>
+          <p className="text-[11px] font-mono text-brand-400 truncate mt-0.5" title={entry.domain}>{entry.domain}</p>
+        </div>
+        {items.map((item, idx) => {
+          if (item.sep) {
+            return <div key={`sep-${idx}`} className="my-1 border-t border-slate-800/80" />
+          }
+          const Icon = item.icon
+          return (
+            <button
+              key={item.key}
+              type="button"
+              className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors ${
+                item.danger ? 'text-rose-300 hover:bg-rose-500/10' :
+                item.success ? 'text-emerald-300 hover:bg-emerald-500/10' :
+                item.warn ? 'text-amber-300 hover:bg-amber-500/10' :
+                'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+              }`}
+              onClick={() => onAction(item.key, entry)}
+            >
+              <Icon size={14} className="shrink-0 opacity-80" />
+              {item.label}
+            </button>
+          )
+        })}
+      </div>
+    </>
+  )
+}
+RowContextMenu.propTypes = {
+  x: PropTypes.number,
+  y: PropTypes.number,
+  entry: PropTypes.object,
+  onClose: PropTypes.func,
+  onAction: PropTypes.func,
+}
+
 export default function QueryLog({ user, initialQueries = [] }) {
   const { alert, confirm } = useAlert()
   const initialClient = getQueryParam('client')
@@ -257,6 +353,7 @@ export default function QueryLog({ user, initialQueries = [] }) {
   const [pageSize] = useState(50)
   const [total, setTotal] = useState(initialQueries.length)
   const [totalPages, setTotalPages] = useState(1)
+  const [contextMenu, setContextMenu] = useState(null)
   const wsRef = useRef(null)
   const pausedRef = useRef(false)
   const filtersRef = useRef(filters)
@@ -288,6 +385,76 @@ export default function QueryLog({ user, initialQueries = [] }) {
       const data = await res.json().catch(() => ({}))
       await alert(data.domain ? data.domain[0] : 'Failed to allow domain.', 'error')
     }
+  }
+
+  const quickExcludeFromLogs = async (domain) => {
+    setActing({ domain, type: 'exclude' })
+    const res = await fetch('/api/system/log-exclusions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+      body: JSON.stringify({ domain, rule_type: 'exact', comment: 'Excluded from Query Log context menu', enabled: true }),
+    })
+    setActing(null)
+    if (res.ok) {
+      await alert(`"${domain}" will no longer appear in future Query Log entries.`, 'success')
+    } else {
+      const data = await res.json().catch(() => ({}))
+      await alert(data.domain ? data.domain[0] : 'Failed to exclude domain from logs.', 'error')
+    }
+  }
+
+  const copyText = async (text, label) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      await alert(`${label} copied to clipboard.`, 'success')
+    } catch {
+      await alert('Could not copy to clipboard.', 'error')
+    }
+  }
+
+  const handleContextAction = async (action, entry) => {
+    setContextMenu(null)
+    const { domain, client_ip: clientIp } = entry
+
+    switch (action) {
+      case 'inspect':
+        setSelectedEntry(entry)
+        break
+      case 'block':
+        await quickBlock(domain)
+        break
+      case 'allow':
+        await quickAllow(domain)
+        break
+      case 'exclude':
+        await quickExcludeFromLogs(domain)
+        break
+      case 'filter_domain':
+        setDraft(d => ({ ...d, domain }))
+        setFilters(f => ({ ...f, domain }))
+        break
+      case 'filter_client':
+        setDraft(d => ({ ...d, client: clientIp || '' }))
+        setFilters(f => ({ ...f, client: clientIp || '' }))
+        break
+      case 'analytics':
+        window.location.href = `/domains/detail?domain=${encodeURIComponent(domain)}`
+        break
+      case 'copy_domain':
+        await copyText(domain, 'Domain')
+        break
+      case 'copy_client':
+        if (clientIp) await copyText(clientIp, 'Client IP')
+        break
+      default:
+        break
+    }
+  }
+
+  const openContextMenu = (ev, entry) => {
+    ev.preventDefault()
+    ev.stopPropagation()
+    setContextMenu({ x: ev.clientX, y: ev.clientY, entry })
   }
 
   useEffect(() => { pausedRef.current = paused }, [paused])
@@ -514,11 +681,23 @@ export default function QueryLog({ user, initialQueries = [] }) {
                 {entries.map((e) => {
                   const s = STATUS_LABELS[e.status] || { label: e.status, cls: 'badge-gray' }
                   const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '—'
+                  const isSelected = selectedEntry?.id === e.id || (
+                    selectedEntry &&
+                    !e.id &&
+                    selectedEntry.timestamp === e.timestamp &&
+                    selectedEntry.domain === e.domain
+                  )
                   return (
                     <tr
                       key={e.id || `${e.timestamp}-${e.domain}-${e.query_type}`}
-                      className="table-row-hover border-b border-slate-800/50"
-                      onClick={() => setSelectedEntry(selectedEntry?.id === e.id ? null : e)}
+                      className={`table-row-hover border-b border-slate-800/50 cursor-[context-menu] ${
+                        isSelected ? 'bg-brand-500/5' : ''
+                      }`}
+                      onClick={() => {
+                        setContextMenu(null)
+                        setSelectedEntry(isSelected ? null : e)
+                      }}
+                      onContextMenu={(ev) => openContextMenu(ev, e)}
                     >
                       <td className="px-4 py-2 text-slate-500 font-mono whitespace-nowrap">{ts}</td>
                       <td className="px-4 py-2 font-mono text-slate-200 max-w-[120px] md:max-w-xs truncate">
@@ -647,6 +826,16 @@ export default function QueryLog({ user, initialQueries = [] }) {
             />
           </div>
         </div>
+      )}
+
+      {contextMenu && (
+        <RowContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          entry={contextMenu.entry}
+          onClose={() => setContextMenu(null)}
+          onAction={handleContextAction}
+        />
       )}
     </Layout>
   )
