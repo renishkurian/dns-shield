@@ -10,6 +10,7 @@ import time
 import xml.etree.ElementTree as ET
 from django.utils import timezone
 from dns.models import Client
+from dns.hostname_resolver import enrich_host_info, get_gateway_ip, resolve_hostname
 
 logger = logging.getLogger('dns')
 
@@ -169,8 +170,6 @@ def _upsert_host(info):
     defaults = {'last_seen': timezone.now()}
     if info.get('mac'):
         defaults['mac'] = info['mac']
-    if info.get('hostname'):
-        defaults['hostname'] = info['hostname']
     if info.get('vendor'):
         defaults['vendor'] = info['vendor']
     if info.get('os_hint'):
@@ -182,14 +181,17 @@ def _upsert_host(info):
 
     client, created = Client.objects.update_or_create(ip=info['ip'], defaults=defaults)
 
-    # Fill empty device_type / name hints without overriding nicknames
+    # Fill hostname/name without overwriting user nicknames or existing names
     updates = {}
+    if info.get('hostname'):
+        if not client.hostname:
+            updates['hostname'] = info['hostname'][:255]
+        if not client.name:
+            updates['name'] = info['hostname'][:100]
     if not client.device_type or client.device_type == 'other':
         guessed = info.get('device_type') or 'other'
         if guessed != 'other':
             updates['device_type'] = guessed
-    if not client.name and info.get('hostname'):
-        updates['name'] = info['hostname'][:100]
     if updates:
         for k, v in updates.items():
             setattr(client, k, v)
@@ -249,12 +251,32 @@ def run_network_scan(subnet=None, deep=True):
         hosts = _parse_nmap_xml(discovery_xml)
         _scan_state['found'] = len(hosts)
 
-        for info in hosts:
-            _upsert_host(info)
+        gateway = get_gateway_ip()
+        _scan_state['phase'] = 'hostnames'
+        for i, info in enumerate(hosts):
+            if not info.get('hostname'):
+                hosts[i] = enrich_host_info(info, gateway=gateway)
+            _upsert_host(hosts[i])
+            _scan_state['enriched'] = i + 1
+
+        # Also try to name known clients still missing hostnames (offline devices)
+        for client in Client.objects.filter(hostname='').exclude(ip=''):
+            name, _ = resolve_hostname(client.ip, gateway=gateway)
+            if name:
+                updates = {}
+                if not client.hostname:
+                    updates['hostname'] = name[:255]
+                if not client.name:
+                    updates['name'] = name[:100]
+                if updates:
+                    for k, v in updates.items():
+                        setattr(client, k, v)
+                    client.save(update_fields=list(updates.keys()))
 
         # Phase 2 — OS + open ports for live hosts
         if deep and hosts:
             _scan_state['phase'] = 'fingerprint'
+            _scan_state['enriched'] = 0
             ips = [h['ip'] for h in hosts]
             try:
                 # Batch fingerprint; host-timeout keeps slow boxes from stalling forever
@@ -277,6 +299,8 @@ def run_network_scan(subnet=None, deep=True):
                     for key in ('os_hint', 'open_ports', 'device_type', 'mac', 'vendor', 'hostname'):
                         if extra.get(key):
                             merged[key] = extra[key]
+                    if not merged.get('hostname'):
+                        merged = enrich_host_info(merged, gateway=gateway)
                     # Re-guess type with richer data
                     merged['device_type'] = _guess_device_type(
                         merged.get('os_hint', ''),

@@ -70,7 +70,7 @@ export default function NetworkMap({ user: currentUser, clients: initialClients 
         const status = await res.json()
         setScanPhase(status.phase || '')
         setScanStats({ found: status.found || 0, enriched: status.enriched || 0 })
-        if (status.phase === 'fingerprint' || status.phase === 'done') {
+        if (status.phase === 'fingerprint' || status.phase === 'hostnames' || status.phase === 'done') {
           await refreshClients()
         }
         if (!status.running) {
@@ -117,7 +117,7 @@ export default function NetworkMap({ user: currentUser, clients: initialClients 
             Network Topology
           </h2>
           <p className="text-sm text-slate-500">
-            Discover devices with nmap (ARP + OS fingerprint + open ports)
+            Discover devices with nmap + router DHCP / mDNS / NetBIOS hostname lookup
           </p>
         </div>
         <button
@@ -134,7 +134,9 @@ export default function NetworkMap({ user: currentUser, clients: initialClients 
         <div className="mb-6 px-4 py-3 rounded-xl border border-brand-500/20 bg-brand-500/5 text-xs text-slate-300 flex flex-wrap items-center gap-3">
           <div className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" />
           <span className="font-bold uppercase tracking-wider text-brand-400">
-            {scanPhase === 'fingerprint' ? 'Fingerprinting hosts' : scanPhase === 'discovery' ? 'Discovering hosts' : 'Starting scan'}
+            {scanPhase === 'fingerprint' ? 'Fingerprinting hosts' :
+             scanPhase === 'hostnames' ? 'Resolving device names' :
+             scanPhase === 'discovery' ? 'Discovering hosts' : 'Starting scan'}
           </span>
           <span className="text-slate-500">
             {scanStats.found ? `${scanStats.found} found` : 'probing subnet…'}

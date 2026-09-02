@@ -301,5 +301,26 @@ class ModernAdblockAndUncloakingTests(TestCase):
         self.assertEqual(res_rebinding.json()['results'][0]['domain'], 'malicious-rebinding.test')
 
 
+class HostnameResolverTests(TestCase):
+    def test_clean_hostname_strips_suffixes(self):
+        from dns.hostname_resolver import _clean_hostname
+        self.assertEqual(_clean_hostname('Galaxy-A36-5G.local'), 'Galaxy-A36-5G')
+        self.assertEqual(_clean_hostname('nicky-IdeaPad-Pro-5-14IMH9.lan'), 'nicky-IdeaPad-Pro-5-14IMH9')
+        self.assertEqual(_clean_hostname('unknown'), '')
+        self.assertEqual(_clean_hostname('192-168-0-215'), '')
+
+    def test_enrich_host_info_fills_missing_hostname(self):
+        from unittest.mock import patch
+        from dns.hostname_resolver import enrich_host_info
+
+        with patch('dns.hostname_resolver.resolve_hostname', return_value=('SM-R861', 'mdns')):
+            result = enrich_host_info({'ip': '192.168.0.159', 'mac': '6A:63:1E:1B:0B:3A'})
+        self.assertEqual(result['hostname'], 'SM-R861')
+        self.assertEqual(result['hostname_source'], 'mdns')
+
+    def test_enrich_host_info_preserves_existing_hostname(self):
+        from dns.hostname_resolver import enrich_host_info
+        info = {'ip': '192.168.0.40', 'hostname': 'nicky-IdeaPad-Pro-5-14IMH9'}
+        self.assertEqual(enrich_host_info(info)['hostname'], 'nicky-IdeaPad-Pro-5-14IMH9')
 
 
