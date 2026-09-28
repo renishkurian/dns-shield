@@ -3184,6 +3184,7 @@ class DoHQueryView(APIView):
 
     def _handle_json_query(self, request, name):
         import dnslib
+        from django.http import JsonResponse
         qtype_str = request.query_params.get('type', 'A').upper()
         qtype = getattr(dnslib.QTYPE, qtype_str, dnslib.QTYPE.A)
 
@@ -3201,7 +3202,9 @@ class DoHQueryView(APIView):
             })
 
         status_code = reply.header.rcode
-        return Response({
+        # Use JsonResponse directly to bypass DRF renderer negotiation
+        # and always return application/json for the /resolve endpoint.
+        return JsonResponse({
             'Status': status_code,
             'TC': bool(reply.header.tc),
             'RD': bool(reply.header.rd),
