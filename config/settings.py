@@ -147,6 +147,12 @@ DNS_PROXY_PORT = int(os.environ.get('DNS_PROXY_PORT', 53))
 UPSTREAM_DNS = os.environ.get('UPSTREAM_DNS', '127.0.0.1')  # Unbound
 UPSTREAM_DNS_PORT = int(os.environ.get('UPSTREAM_DNS_PORT', 5335))
 
+# Only these peers may set X-Forwarded-For (Nginx / cloudflared on this host by default).
+TRUSTED_PROXIES = [
+    p.strip() for p in os.environ.get('TRUSTED_PROXIES', '127.0.0.1,::1').split(',') if p.strip()
+]
+DNS_CACHE_SIZE = int(os.environ.get('DNS_CACHE_SIZE', 10000))
+
 # REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [

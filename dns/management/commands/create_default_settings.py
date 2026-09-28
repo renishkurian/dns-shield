@@ -22,6 +22,7 @@ DEFAULTS = {
         'true',
         'When auto intelligence flags a device, automatically quarantine it (block DNS + Quarantine group)',
     ),
+    'block_mode': ('nxdomain', 'Response for blocked domains: nxdomain | refused | null_ip'),
     'module_cname_uncloaking': ('true', 'Enable CNAME uncloaking to block disguised 1st-party trackers'),
     'module_canary_blocking': ('true', 'Block DoH and iCloud Private Relay canary domains to force local proxy usage'),
     'module_dga_protection': ('true', 'Enable PSL-aware Shannon entropy DGA & zero-day tracker protection'),

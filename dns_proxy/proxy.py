@@ -38,6 +38,25 @@ def _check_rate_limit(client_ip: str, limit: int = 300, window_sec: float = 5.0)
         return True
 
 
+def _block_reply(request: dnslib.DNSRecord, mode: str) -> dnslib.DNSRecord:
+    """Build the reply for a blocked query: nxdomain | refused | null_ip."""
+    reply = request.reply()
+    if mode == 'refused':
+        reply.header.rcode = dnslib.RCODE.REFUSED
+    elif mode == 'null_ip':
+        qtype = request.q.qtype
+        if qtype == dnslib.QTYPE.A:
+            reply.add_answer(dnslib.RR(request.q.qname, dnslib.QTYPE.A, ttl=60,
+                                       rdata=dnslib.A('0.0.0.0')))
+        elif qtype == dnslib.QTYPE.AAAA:
+            reply.add_answer(dnslib.RR(request.q.qname, dnslib.QTYPE.AAAA, ttl=60,
+                                       rdata=dnslib.AAAA('::')))
+        # other types: NOERROR / NODATA
+    else:
+        reply.header.rcode = dnslib.RCODE.NXDOMAIN
+    return reply
+
+
 class DNSShieldResolver(BaseResolver):
     def __init__(self, matcher, upstream_host: str, upstream_port: int):
         self.matcher = matcher
@@ -152,9 +171,7 @@ class DNSShieldResolver(BaseResolver):
         group_id = _resolve_identity(client_ip)
 
         def nxdomain():
-            reply = request.reply()
-            reply.header.rcode = dnslib.RCODE.NXDOMAIN
-            return reply
+            return _block_reply(request, getattr(self.matcher, 'block_mode', 'nxdomain'))
 
         # 1. Allowlist — always forward
         if self.matcher.is_allowed(domain, group_id=group_id):
@@ -516,7 +533,7 @@ def start_proxy(host: str, port: int, upstream_host: str, upstream_port: int,
         if _server is not None:
             return _server
         resolver = DNSShieldResolver(matcher, upstream_host, upstream_port)
-        _server = DNSServer(resolver, address=host, port=port, tcp=False)
+        _server = DNSServer(resolver, address=host, port=port, tcp=True)
         _server.start_thread()
         logger.info(f"DNS proxy listening on {host}:{port} → {upstream_host}:{upstream_port}")
         return _server

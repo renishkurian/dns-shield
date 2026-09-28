@@ -2088,11 +2088,8 @@ class SystemStatusView(APIView):
         from dns.shield import is_shield_active
 
         # Extract client IP
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            client_ip = x_forwarded_for.split(',')[0].strip()
-        else:
-            client_ip = request.META.get('REMOTE_ADDR', '127.0.0.1')
+        from dns.net_utils import get_client_ip
+        client_ip = get_client_ip(request)
 
         # Detect server LAN IP
         server_ip = '127.0.0.1'
@@ -3136,10 +3133,8 @@ class DoHQueryView(APIView):
         return Response({'error': 'Invalid content type or empty body'}, status=400)
 
     def _get_client_ip(self, request):
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            return x_forwarded_for.split(',')[0].strip()
-        return request.META.get('REMOTE_ADDR', '127.0.0.1')
+        from dns.net_utils import get_client_ip
+        return get_client_ip(request)
 
     def _resolve_record(self, dns_req, client_ip):
         from dns_proxy.proxy import DNSShieldResolver

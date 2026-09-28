@@ -89,6 +89,7 @@ class Matcher:
         self.rebinding_protection_enabled = True
         self.https_ech_protection_enabled = True
         self.rate_limiting_enabled = True
+        self.block_mode = 'nxdomain'
         self.module_hit_counts = defaultdict(int)
         self.reload()
 
@@ -109,6 +110,9 @@ class Matcher:
             rebinding_enabled = settings_dict.get('module_rebinding_protection', 'true') != 'false'
             https_ech_enabled = settings_dict.get('module_https_ech_protection', 'true') != 'false'
             rate_limit_enabled = settings_dict.get('module_rate_limiting', 'true') != 'false'
+            block_mode = settings_dict.get('block_mode', 'nxdomain')
+            if block_mode not in ('nxdomain', 'refused', 'null_ip'):
+                block_mode = 'nxdomain'
 
             # Clear current state (will be replaced within lock)
             new_exact_blocks = defaultdict(set)
@@ -221,6 +225,7 @@ class Matcher:
                 self.rebinding_protection_enabled = rebinding_enabled
                 self.https_ech_protection_enabled = https_ech_enabled
                 self.rate_limiting_enabled = rate_limit_enabled
+                self.block_mode = block_mode
 
             from dns_proxy.cache import get_cache
             get_cache().clear()
