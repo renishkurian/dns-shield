@@ -523,25 +523,50 @@ def _increment_domain_hit(domain: str):
 # ─── Singleton server ────────────────────────────────────────────────────────
 
 _server: DNSServer | None = None
+_tcp_server: DNSServer | None = None
 _server_lock = threading.Lock()
 
 
 def start_proxy(host: str, port: int, upstream_host: str, upstream_port: int,
                 matcher) -> DNSServer:
-    global _server
+    global _server, _tcp_server
     with _server_lock:
-        if _server is not None:
+        if _server is not None or _tcp_server is not None:
             return _server
         resolver = DNSShieldResolver(matcher, upstream_host, upstream_port)
-        _server = DNSServer(resolver, address=host, port=port, tcp=True)
+
+        # DNS over UDP
+        _server = DNSServer(
+            resolver,
+            address=host,
+            port=port,
+            tcp=False,
+        )
+
+        # DNS over TCP
+        _tcp_server = DNSServer(
+            resolver,
+            address=host,
+            port=port,
+            tcp=True,
+        )
+
         _server.start_thread()
-        logger.info(f"DNS proxy listening on {host}:{port} → {upstream_host}:{upstream_port}")
+        _tcp_server.start_thread()
+
+        logger.info(
+            f"DNS proxy listening on {host}:{port} "
+            f"(UDP + TCP) → {upstream_host}:{upstream_port}"
+        )
         return _server
 
 
 def stop_proxy():
-    global _server
+    global _server, _tcp_server
     with _server_lock:
         if _server:
             _server.stop()
             _server = None
+        if _tcp_server:
+            _tcp_server.stop()
+            _tcp_server = None
