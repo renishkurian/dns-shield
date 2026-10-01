@@ -173,6 +173,22 @@ export default function DNSSettings({ user, settings: initial = {} }) {
       icon: Activity,
       color: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
     },
+    {
+      key: 'disable_ipv6',
+      countKey: 'disable_ipv6',
+      name: 'Disable IPv6',
+      desc: 'Responds NODATA to every AAAA query network-wide, forcing clients onto IPv4 only. Useful on IPv4-only networks or to work around broken IPv6 tunnels.',
+      icon: ShieldAlert,
+      color: 'text-orange-400 bg-orange-500/10 border-orange-500/20',
+    },
+    {
+      key: 'anonymize_client_ip',
+      countKey: 'anonymize_client_ip',
+      name: 'Anonymize Client IPs',
+      desc: 'Masks the last IPv4 octet (or the IPv6 interface identifier) before writing query logs and live stats, so per-device browsing history is not retained in plain form.',
+      icon: Lock,
+      color: 'text-slate-400 bg-slate-500/10 border-slate-500/20',
+    },
   ]
 
   const toggleModule = (key) => {
@@ -194,6 +210,78 @@ export default function DNSSettings({ user, settings: initial = {} }) {
     { key: 'proxy_host', label: 'Proxy Bind Host', placeholder: '0.0.0.0', desc: 'Interface to bind DNS proxy' },
     { key: 'proxy_port', label: 'Proxy Port', placeholder: '53', desc: 'DNS proxy port (53 is standard UDP/TCP)' },
     { key: 'log_retention_days', label: 'Log Retention (days)', placeholder: '30', desc: 'Auto-delete query logs after N days' },
+    {
+      key: 'upstream_extra_servers',
+      label: 'Extra Upstream Servers',
+      placeholder: '1.1.1.1:53, 8.8.8.8:53',
+      desc: 'Comma-separated host:port list used alongside the primary upstream above',
+    },
+    {
+      key: 'upstream_mode',
+      label: 'Upstream Mode',
+      placeholder: 'fallback',
+      desc: '"fallback" tries servers in order; "fastest" races all servers and uses the quickest reply',
+    },
+    {
+      key: 'block_mode',
+      label: 'Block Response Mode',
+      placeholder: 'nxdomain',
+      desc: 'How blocked queries are answered: nxdomain | refused | null_ip | custom_ip',
+    },
+    {
+      key: 'block_ip_v4',
+      label: 'Custom Block IP (IPv4)',
+      placeholder: '0.0.0.0',
+      desc: 'Used for A-record answers when Block Response Mode is custom_ip',
+    },
+    {
+      key: 'block_ip_v6',
+      label: 'Custom Block IP (IPv6)',
+      placeholder: '::',
+      desc: 'Used for AAAA-record answers when Block Response Mode is custom_ip',
+    },
+    {
+      key: 'bogus_nxdomain_ips',
+      label: 'Bogus NXDOMAIN IPs',
+      placeholder: '',
+      desc: 'Comma-separated sinkhole IPs from ISP hijacking to treat as NXDOMAIN instead of trusting',
+    },
+    {
+      key: 'access_allowed_clients',
+      label: 'Allowed Clients (CIDR)',
+      placeholder: '192.168.1.0/24',
+      desc: 'Only these client IPs/CIDRs may use this resolver. Leave empty to allow everyone not denied',
+    },
+    {
+      key: 'access_disallowed_clients',
+      label: 'Disallowed Clients (CIDR)',
+      placeholder: '192.168.1.50',
+      desc: 'These client IPs/CIDRs are always refused, checked before the allow list',
+    },
+    {
+      key: 'cache_min_ttl',
+      label: 'Cache Min TTL (seconds)',
+      placeholder: '0',
+      desc: 'Floor applied to every cached answer TTL. 0 = no floor',
+    },
+    {
+      key: 'cache_max_ttl',
+      label: 'Cache Max TTL (seconds)',
+      placeholder: '0',
+      desc: 'Ceiling applied to every cached answer TTL. 0 = no ceiling',
+    },
+    {
+      key: 'cache_negative_ttl',
+      label: 'Cache Negative TTL (seconds)',
+      placeholder: '60',
+      desc: 'How long NXDOMAIN answers are cached (negative caching)',
+    },
+    {
+      key: 'cache_stale_grace_seconds',
+      label: 'Stale Cache Grace (seconds)',
+      placeholder: '3600',
+      desc: 'Serve an expired cache entry for this long if every upstream is unreachable. 0 disables',
+    },
   ]
 
   return (

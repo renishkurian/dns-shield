@@ -6,6 +6,7 @@ import ipaddress
 import socket
 import struct
 import threading
+import queue as queue_module
 import logging
 import time
 import dnslib
@@ -86,6 +87,66 @@ def forward(request: dnslib.DNSRecord, host: str, port: int) -> dnslib.DNSRecord
         reply = request.reply()
         reply.header.rcode = dnslib.RCODE.SERVFAIL
         return reply
+
+
+def forward_multi(request: dnslib.DNSRecord, servers: list[tuple[str, int]], mode: str = 'fallback'):
+    """
+    Forward to one primary server plus any number of extra upstream servers.
+
+    servers: list of (host, port) tuples, primary first.
+    mode:
+      - 'fallback' (default): try servers in order, moving to the next only
+        when a server times out or returns SERVFAIL. This is the safest mode
+        and matches the previous single-upstream behavior when only one
+        server is configured.
+      - 'fastest': query every server concurrently and return whichever
+        non-SERVFAIL answer comes back first (AdGuard Home's "fastest IP"
+        upstream mode). Falls back to the first response received if every
+        server returns SERVFAIL.
+    """
+    if not servers:
+        raise ValueError('forward_multi requires at least one server')
+
+    if len(servers) == 1 or mode == 'fallback':
+        last_reply = None
+        for host, port in servers:
+            reply = forward(request, host, port)
+            last_reply = reply
+            if reply.header.rcode != dnslib.RCODE.SERVFAIL:
+                return reply
+        return last_reply
+
+    # 'fastest' mode: race all servers, return the first usable answer.
+    results: queue_module.Queue = queue_module.Queue()
+
+    def _query(host, port):
+        try:
+            results.put(forward(request, host, port))
+        except Exception as exc:
+            logger.warning(f"forward_multi: {host}:{port} failed: {exc}")
+
+    threads = [threading.Thread(target=_query, args=(h, p), daemon=True) for h, p in servers]
+    for t in threads:
+        t.start()
+
+    deadline = time.monotonic() + max(UDP_TIMEOUT, TCP_TIMEOUT) + 0.5
+    fallback_reply = None
+    seen = 0
+    while seen < len(servers) and time.monotonic() < deadline:
+        try:
+            reply = results.get(timeout=0.25)
+        except Exception:
+            continue
+        seen += 1
+        if reply.header.rcode != dnslib.RCODE.SERVFAIL:
+            return reply
+        fallback_reply = fallback_reply or reply
+
+    if fallback_reply is not None:
+        return fallback_reply
+    reply = request.reply()
+    reply.header.rcode = dnslib.RCODE.SERVFAIL
+    return reply
 
 
 def resolve_cnames(domain: str, host: str = '127.0.0.1', port: int = 5335) -> list[str]:

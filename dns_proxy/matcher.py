@@ -10,6 +10,7 @@ import re
 import threading
 import logging
 import math
+import ipaddress
 from collections import defaultdict
 
 from dns_proxy.gravity_index import GravityIndex
@@ -90,6 +91,19 @@ class Matcher:
         self.https_ech_protection_enabled = True
         self.rate_limiting_enabled = True
         self.block_mode = 'nxdomain'
+        self.block_ip_v4 = '0.0.0.0'
+        self.block_ip_v6 = '::'
+        self.disable_ipv6_enabled = False
+        self.anonymize_client_ip_enabled = False
+        self.bogus_nxdomain_ips = set()
+        self.access_allowed_clients = []
+        self.access_disallowed_clients = []
+        self.cache_min_ttl = 0
+        self.cache_max_ttl = 0
+        self.cache_negative_ttl = 60
+        self.cache_stale_grace_seconds = 3600
+        self.upstream_mode = 'fallback'
+        self.upstream_extra_servers = []
         self.module_hit_counts = defaultdict(int)
         self.reload()
 
@@ -111,8 +125,65 @@ class Matcher:
             https_ech_enabled = settings_dict.get('module_https_ech_protection', 'true') != 'false'
             rate_limit_enabled = settings_dict.get('module_rate_limiting', 'true') != 'false'
             block_mode = settings_dict.get('block_mode', 'nxdomain')
-            if block_mode not in ('nxdomain', 'refused', 'null_ip'):
+            if block_mode not in ('nxdomain', 'refused', 'null_ip', 'custom_ip'):
                 block_mode = 'nxdomain'
+            block_ip_v4 = settings_dict.get('block_ip_v4', '0.0.0.0').strip() or '0.0.0.0'
+            block_ip_v6 = settings_dict.get('block_ip_v6', '::').strip() or '::'
+
+            disable_ipv6_enabled = settings_dict.get('disable_ipv6', 'false') == 'true'
+            anonymize_client_ip_enabled = settings_dict.get('anonymize_client_ip', 'false') == 'true'
+
+            bogus_nxdomain_ips = {
+                ip.strip() for ip in settings_dict.get('bogus_nxdomain_ips', '').split(',') if ip.strip()
+            }
+
+            def _parse_cidrs(raw: str):
+                nets = []
+                for part in (raw or '').split(','):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    try:
+                        nets.append(ipaddress.ip_network(part, strict=False))
+                    except ValueError:
+                        logger.warning(f"Invalid client CIDR/IP in access control: {part}")
+                return nets
+
+            access_allowed_clients = _parse_cidrs(settings_dict.get('access_allowed_clients', ''))
+            access_disallowed_clients = _parse_cidrs(settings_dict.get('access_disallowed_clients', ''))
+
+            def _to_int(key, default):
+                try:
+                    return int(settings_dict.get(key, str(default)))
+                except (TypeError, ValueError):
+                    return default
+
+            cache_min_ttl = _to_int('cache_min_ttl', 0)
+            cache_max_ttl = _to_int('cache_max_ttl', 0)  # 0 = no cap
+            cache_negative_ttl = _to_int('cache_negative_ttl', 60)
+            cache_stale_grace_seconds = _to_int('cache_stale_grace_seconds', 3600)
+
+            upstream_mode = settings_dict.get('upstream_mode', 'fallback')
+            if upstream_mode not in ('fallback', 'fastest'):
+                upstream_mode = 'fallback'
+
+            def _parse_servers(raw: str):
+                servers = []
+                for part in (raw or '').split(','):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    if ':' in part and not part.startswith('['):
+                        host, _, port_s = part.rpartition(':')
+                        try:
+                            servers.append((host, int(port_s)))
+                        except ValueError:
+                            logger.warning(f"Invalid upstream server entry: {part}")
+                    else:
+                        servers.append((part, 53))
+                return servers
+
+            upstream_extra_servers = _parse_servers(settings_dict.get('upstream_extra_servers', ''))
 
             # Clear current state (will be replaced within lock)
             new_exact_blocks = defaultdict(set)
@@ -226,8 +297,27 @@ class Matcher:
                 self.https_ech_protection_enabled = https_ech_enabled
                 self.rate_limiting_enabled = rate_limit_enabled
                 self.block_mode = block_mode
+                self.block_ip_v4 = block_ip_v4
+                self.block_ip_v6 = block_ip_v6
+                self.disable_ipv6_enabled = disable_ipv6_enabled
+                self.anonymize_client_ip_enabled = anonymize_client_ip_enabled
+                self.bogus_nxdomain_ips = bogus_nxdomain_ips
+                self.access_allowed_clients = access_allowed_clients
+                self.access_disallowed_clients = access_disallowed_clients
+                self.cache_min_ttl = cache_min_ttl
+                self.cache_max_ttl = cache_max_ttl
+                self.cache_negative_ttl = cache_negative_ttl
+                self.cache_stale_grace_seconds = cache_stale_grace_seconds
+                self.upstream_mode = upstream_mode
+                self.upstream_extra_servers = upstream_extra_servers
 
             from dns_proxy.cache import get_cache
+            get_cache().configure(
+                min_ttl=cache_min_ttl,
+                max_ttl=cache_max_ttl,
+                negative_ttl=cache_negative_ttl,
+                stale_grace_seconds=cache_stale_grace_seconds,
+            )
             get_cache().clear()
 
             from dns_proxy.log_exclusions import get_log_exclusion_manager
@@ -239,6 +329,24 @@ class Matcher:
             )
         except Exception as exc:
             logger.error(f"Matcher reload failed: {exc}")
+
+    def is_client_allowed(self, client_ip: str) -> bool:
+        """Access control: check client IP against allow/deny CIDR lists.
+        Deny list wins. An empty allow list means "allow everyone not denied".
+        """
+        with self._lock:
+            denied = self.access_disallowed_clients
+            allowed = self.access_allowed_clients
+        try:
+            ip_obj = ipaddress.ip_address(client_ip)
+        except ValueError:
+            return True
+        for net in denied:
+            if ip_obj in net:
+                return False
+        if allowed and not any(ip_obj in net for net in allowed):
+            return False
+        return True
 
     def is_allowed(self, domain: str, group_id: int = None) -> bool:
         """Check if domain is explicitly allowed for this group or globally."""
@@ -401,6 +509,11 @@ class Matcher:
                 'rebinding_protection_enabled': self.rebinding_protection_enabled,
                 'https_ech_protection_enabled': self.https_ech_protection_enabled,
                 'rate_limiting_enabled': self.rate_limiting_enabled,
+                'disable_ipv6_enabled': self.disable_ipv6_enabled,
+                'anonymize_client_ip_enabled': self.anonymize_client_ip_enabled,
+                'block_mode': self.block_mode,
+                'upstream_mode': self.upstream_mode,
+                'upstream_extra_servers_count': len(self.upstream_extra_servers),
                 'counts': {
                     'cname': {
                         'total': cname_total,
