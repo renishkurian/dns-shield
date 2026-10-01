@@ -642,18 +642,22 @@ class DoTServer:
         self.keyfile = keyfile
         self._server = None
         self._thread = None
+        self._loop = None
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         peer = writer.get_extra_info('peername')
         client_ip = peer[0] if peer else '0.0.0.0'
+        # Per-message read timeout — an idle/slow client should not hold the
+        # connection (and its fd) open forever.
+        read_timeout = 10
         try:
             while True:
                 # Read 2-byte length prefix
-                length_bytes = await reader.readexactly(2)
+                length_bytes = await asyncio.wait_for(reader.readexactly(2), timeout=read_timeout)
                 msg_len = struct.unpack('!H', length_bytes)[0]
                 if msg_len == 0:
                     break
-                raw = await reader.readexactly(msg_len)
+                raw = await asyncio.wait_for(reader.readexactly(msg_len), timeout=read_timeout)
 
                 try:
                     dns_req = dnslib.DNSRecord.parse(raw)
@@ -663,12 +667,18 @@ class DoTServer:
                 class _Handler:
                     client_address = (client_ip, DOT_PORT)
 
-                reply = self.resolver.resolve(dns_req, _Handler())
+                # resolver.resolve() is a synchronous, blocking call (it does
+                # real network I/O to the upstream with multi-second timeouts).
+                # Run it in the default executor so one slow DoT query doesn't
+                # stall every other DoT connection on this event loop.
+                reply = await asyncio.get_running_loop().run_in_executor(
+                    None, self.resolver.resolve, dns_req, _Handler()
+                )
                 packed = reply.pack()
                 # Write 2-byte length prefix + reply
                 writer.write(struct.pack('!H', len(packed)) + packed)
                 await writer.drain()
-        except (asyncio.IncompleteReadError, ConnectionResetError):
+        except (asyncio.IncompleteReadError, ConnectionResetError, asyncio.TimeoutError):
             pass
         except Exception as exc:
             logger.debug(f"DoT handler error from {client_ip}: {exc}")
@@ -686,6 +696,10 @@ class DoTServer:
         return ctx
 
     async def _serve(self):
+        # Keep a reference to this thread's event loop so stop() — which is
+        # called from a different thread — can schedule work on it safely
+        # instead of touching asyncio objects cross-thread.
+        self._loop = asyncio.get_running_loop()
         try:
             ssl_ctx = self._build_ssl_ctx()
         except Exception as exc:
@@ -711,8 +725,11 @@ class DoTServer:
         self._thread.start()
 
     def stop(self):
-        if self._server:
-            self._server.close()
+        # self._server.close() must run on the loop that owns it; calling it
+        # directly from another thread is unsafe. call_soon_threadsafe()
+        # schedules it correctly regardless of which thread calls stop().
+        if self._server and self._loop:
+            self._loop.call_soon_threadsafe(self._server.close)
 
 
 def _dot_cert_paths() -> tuple[str | None, str | None]:
