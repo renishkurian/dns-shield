@@ -6,6 +6,7 @@ and broadcasts progress to admin WebSocket clients.
 import asyncio
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 from asgiref.sync import sync_to_async
@@ -14,6 +15,40 @@ from channels.layers import get_channel_layer
 logger = logging.getLogger(__name__)
 
 _gravity_running = False
+
+
+def _filters_dir() -> Path:
+    from django.conf import settings as dj_settings
+    d = Path(dj_settings.BASE_DIR) / 'gravity_filters'
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _save_adlist_filter_file(adlist_id: int, raw_text: str):
+    """
+    Save the full, unmodified adlist text next to the flattened GravityDomain
+    set. dns_proxy.matcher.reload() loads these into the native adblock engine
+    (ABP/uBO syntax: $important, @@ exceptions, etc.) which the simple
+    GravityDomain domain-set cannot represent.
+    """
+    path = _filters_dir() / f'adlist_{adlist_id}.txt'
+    path.write_text(raw_text)
+
+
+def _prune_stale_filter_files(live_adlist_ids: set):
+    """Remove filter files for adlists that were disabled or deleted since the
+    last gravity run, so a disabled adlist's rules actually stop applying."""
+    d = _filters_dir()
+    for fpath in d.glob('adlist_*.txt'):
+        try:
+            adlist_id = int(fpath.stem.split('_', 1)[1])
+        except (IndexError, ValueError):
+            continue
+        if adlist_id not in live_adlist_ids:
+            try:
+                fpath.unlink()
+            except OSError:
+                pass
 
 
 async def broadcast(message: str, level: str = 'info'):
@@ -82,6 +117,12 @@ async def run_gravity_update():
 
                 await broadcast(f"  Parsed {len(domains):,} domains from {adlist.name}")
 
+                # Keep the raw list text too, so the native adblock engine can
+                # pick up any $modifiers / @@ exceptions that parse_list() (which
+                # only understands plain hosts lines and bare ||domain^ rules)
+                # has to ignore.
+                await sync_to_async(_save_adlist_filter_file)(adlist.id, r.text)
+
                 # Bulk upsert in sync context
                 @sync_to_async
                 def save_domains(adlist_obj, domain_set):
@@ -106,8 +147,13 @@ async def run_gravity_update():
                 await sync_to_async(lambda: setattr(adlist, 'last_error', error_msg) or adlist.save(update_fields=['last_error']))()
                 await broadcast(f"  ✗ {adlist.name}: {error_msg}", level='error')
 
+        # 1.5 Drop filter files for adlists that were deleted entirely (disabled-
+        # but-still-present adlists keep their file on disk; matcher.reload()
+        # already skips loading any file whose adlist isn't currently enabled).
+        live_ids = await sync_to_async(lambda: set(Adlist.objects.values_list('id', flat=True)))()
+        await sync_to_async(_prune_stale_filter_files)(live_ids)
+
         # 2. Calculate and store global uniqueness
-        from blocks.models import GravityDomain
         from dns.models import SystemSetting
         
         all_unique_count = await sync_to_async(GravityDomain.objects.values('domain').distinct().count)()

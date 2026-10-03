@@ -9,6 +9,7 @@ db.sqlite3
 staticfiles/
 media/
 logs/
+gravity_filters/
 .venv/
 venv/
 node_modules/

@@ -111,7 +111,7 @@ class Matcher:
         """Atomically reload all rules from the database."""
         import django
         django.setup()
-        from blocks.models import BlockedDomain, AllowedDomain, Pattern, GravityDomain, AppCategory, AppControl
+        from blocks.models import BlockedDomain, AllowedDomain, Pattern, GravityDomain, AppCategory, AppControl, Adlist
         from dns.models import SystemSetting
 
         try:
@@ -251,7 +251,17 @@ class Matcher:
                 GravityDomain.objects.values_list('domain', flat=True).iterator(chunk_size=20000)
             )
 
-            # Optional: initialize native adblock engine if adblock is available
+            # Optional: initialize native adblock engine if adblock is available.
+            #
+            # Two sources feed the same engine:
+            #  1. Manual wildcard rules from BlockedDomain/AllowedDomain (as before).
+            #  2. Raw text of every enabled Adlist, written to gravity_filters/ by
+            #     gravity/updater.py on each gravity run. Unlike the flat GravityDomain
+            #     domain-set (which only understands plain hosts-file lines and
+            #     unmodified `||domain^` rules), the adblock engine natively supports
+            #     full ABP/uBO syntax: $important, $third-party, $badfilter and,
+            #     critically, @@ exceptions — so an ad list's own allowlist rules are
+            #     now actually honored instead of silently discarded.
             new_adblock_engine = None
             adblock_rules_count = 0
             if adblock is not None:
@@ -269,11 +279,51 @@ class Matcher:
                             continue
                         if a.allow_type == 'wildcard':
                             filter_lines.append(f"@@||{d}^")
+
+                    fset = adblock.FilterSet()
                     if filter_lines:
-                        fset = adblock.FilterSet()
-                        fset.add_filter_list(filter_lines)
-                        new_adblock_engine = adblock.Engine(fset)
+                        # add_filter_list() takes a single string, not a list —
+                        # passing a list here used to raise a TypeError that was
+                        # silently swallowed below, so this engine never actually
+                        # built. Joining into one string fixes that.
+                        fset.add_filter_list("\n".join(filter_lines))
                         adblock_rules_count = len(filter_lines)
+
+                    adlist_rule_source_count = 0
+                    try:
+                        from django.conf import settings as dj_settings
+                        from pathlib import Path
+                        filters_dir = Path(dj_settings.BASE_DIR) / 'gravity_filters'
+                        enabled_adlist_ids = set(
+                            Adlist.objects.filter(enabled=True).values_list('id', flat=True)
+                        )
+                        if filters_dir.is_dir():
+                            for fpath in sorted(filters_dir.glob('adlist_*.txt')):
+                                try:
+                                    adlist_id = int(fpath.stem.split('_', 1)[1])
+                                except (IndexError, ValueError):
+                                    continue
+                                if adlist_id not in enabled_adlist_ids:
+                                    continue
+                                try:
+                                    raw_text = fpath.read_text(errors='ignore')
+                                except Exception as read_err:
+                                    logger.warning(f"Could not read adlist filter {fpath}: {read_err}")
+                                    continue
+                                if not raw_text.strip():
+                                    continue
+                                # Try both syntaxes: most ad lists are pure ABP/uBO
+                                # ("standard"), a few are pure hosts-file; running
+                                # both passes over the same text is harmless since
+                                # each pass ignores lines it can't parse.
+                                fset.add_filter_list(raw_text, format='standard')
+                                fset.add_filter_list(raw_text, format='hosts')
+                                adlist_rule_source_count += 1
+                    except Exception as adlist_err:
+                        logger.warning(f"Adlist filter loading skipped: {adlist_err}")
+
+                    if filter_lines or adlist_rule_source_count:
+                        new_adblock_engine = adblock.Engine(fset)
                 except Exception as ab_err:
                     logger.warning(f"Adblock engine build skipped: {ab_err}")
 
@@ -443,6 +493,32 @@ class Matcher:
                 return res.filter or "Adblock Filter"
         except Exception:
             pass
+
+    def is_adlist_exception(self, domain: str) -> str | None:
+        """
+        True if an adlist's own @@ exception rule explicitly allows this domain
+        (and nothing with higher precedence, e.g. $important, overrides that).
+        This lets an ad list's own allowlist entries win over the flat
+        gravity/domain-blocklist checks, which have no concept of exceptions.
+        A $important block rule still wins over a plain exception — that case
+        surfaces as res.matched=True and is handled by match_adblock(), not here.
+        """
+        with self._lock:
+            engine = self.adblock_engine
+        if not engine:
+            return None
+        try:
+            domain_clean = (domain or '').strip().lower()
+            res = engine.check_network_urls(
+                url=f"http://{domain_clean}/",
+                source_url="",
+                request_type="other"
+            )
+            if not res.matched and getattr(res, 'exception', None) is not None:
+                return res.filter or "Adlist Exception"
+        except Exception:
+            pass
+        return None
         return None
 
     def is_dga(self, domain: str) -> bool:

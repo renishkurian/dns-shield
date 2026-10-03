@@ -259,6 +259,32 @@ class DNSShieldResolver(BaseResolver):
             dns_cache.put(request, reply)
             return reply
 
+        # 1.5 Adlist exception (@@ rule inside a fetched ad/block list) — this is
+        # different from the admin-curated Allowlist above: it comes from the
+        # ad lists themselves (e.g. an AdGuard/EasyList-style list that both
+        # blocks a tracker domain and explicitly un-blocks one of its own
+        # subdomains with "@@"). Gravity's flat domain set has no concept of
+        # exceptions, so without this check a list's own "@@" rule would be
+        # silently lost — the domain would just hit the blunt gravity/domain
+        # blocklist checks below and get blocked anyway.
+        if getattr(self.matcher, 'adblock_engine_enabled', True):
+            adlist_exception = self.matcher.is_adlist_exception(domain)
+            if adlist_exception:
+                reply = _forward(self.matcher, request, up_host, up_port)
+                elapsed = (time.monotonic() - start) * 1000
+                resolved_ip = _extract_ip(reply)
+                dnssec = _get_dnssec_status(reply)
+                ttl = _get_min_ttl(reply)
+                dns_logger.log_query(domain, log_ip, 'allowed', qtype,
+                                     matched_rule=adlist_exception, response_time_ms=elapsed,
+                                     resolved_ip=resolved_ip, resolved_by='Allowed (Adlist Exception)',
+                                     dnssec_status=dnssec, ttl=ttl)
+                _broadcast(domain, log_ip, 'allowed', qtype, adlist_exception, elapsed,
+                           resolved_ip=resolved_ip, resolved_by='Allowed (Adlist Exception)',
+                           dnssec_status=dnssec, ttl=ttl)
+                dns_cache.put(request, reply)
+                return reply
+
         # 2. Pattern match
         pattern_match = self.matcher.match_pattern(domain, group_id=group_id)
         if pattern_match:
@@ -355,7 +381,8 @@ class DNSShieldResolver(BaseResolver):
             for rr in reply.rr:
                 if rr.rtype == dnslib.QTYPE.CNAME:
                     cname_target = str(rr.rdata).rstrip('.').lower()
-                    if not cname_target or self.matcher.is_allowed(cname_target, group_id=group_id):
+                    if (not cname_target or self.matcher.is_allowed(cname_target, group_id=group_id)
+                            or self.matcher.is_adlist_exception(cname_target)):
                         continue
 
                     cname_blocked = False
